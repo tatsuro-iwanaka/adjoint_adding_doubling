@@ -1009,7 +1009,7 @@ inline void Configuration::validateConfiguration(void)
 				}
 				else if(!spectral_coordinate.n_spectral.has_value())
 				{
-					if(spectral_coordinate.max.value() - spectral_coordinate.max.value() > spectral_coordinate.increment.value())
+					if(spectral_coordinate.max.value() - spectral_coordinate.min.value() > spectral_coordinate.increment.value())
 					{
 						throw std::runtime_error("[Configuration::validateConfiguration] Spectral range error (width > increment).");
 					}
@@ -1027,7 +1027,7 @@ inline void Configuration::validateConfiguration(void)
 	}
 	else if(spectral_coordinate.spectral_coordinate_type.value() == SpectralCoordinateType::Bandpass)
 	{
-		if(!instrument.instrument_function_type.has_value() == false)
+		if(!instrument.instrument_function_type.has_value())
 		{
 			throw std::runtime_error("[Configuration::validateConfiguration] Instrument was not specified for bandpass calculation.");
 		}
