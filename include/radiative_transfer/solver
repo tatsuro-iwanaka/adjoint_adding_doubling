@@ -1,0 +1,211 @@
+#pragma once
+
+#include<Eigen/Dense>
+#include<cmath>
+#include<algorithm>
+
+#include"types"
+#include"constants"
+#include"geometry"
+
+namespace radiative_transfer
+{
+
+inline Layer doubleLayer(const Layer &layer, const Geometry &geometry)
+{
+	Eigen::VectorXd expu = Eigen::VectorXd::Zero(geometry.Ntheta);
+	Eigen::VectorXd expl = Eigen::VectorXd::Zero(geometry.Ntheta);
+
+	for(int i = 0; i < geometry.Ntheta; i ++)
+	{
+		expu(i) = std::exp(-layer.optical_thickness / geometry.mu_uh(i));
+		expl(i) = std::exp(-layer.optical_thickness / geometry.mu_lh(i));
+	}
+
+	auto result = layer;
+	result.optical_thickness *= 2.0;
+
+	if(layer.enable_atmospheric_emission == true)
+	{
+		result.enable_atmospheric_emission = true;
+	}
+
+	for(int m = 0; m <= geometry.M; m ++)
+	{
+		Eigen::MatrixXd Q1_c = (m == 0 ? 2.0 : 1.0) * layer.reflectance_m_bottom_cos[m] * geometry.WMU_uh * layer.reflectance_m_top_cos[m];
+		Eigen::MatrixXd Q1_s = (m == 0 ? 2.0 : 1.0) * layer.reflectance_m_bottom_sin[m] * geometry.WMU_uh * layer.reflectance_m_top_sin[m];
+		
+		Eigen::MatrixXd Q2_c = (m == 0 ? 2.0 : 1.0) * Q1_c * geometry.WMU_lh;
+		Eigen::MatrixXd Q2_s = (m == 0 ? 2.0 : 1.0) * Q1_s * geometry.WMU_lh;
+
+		Eigen::MatrixXd E = Eigen::MatrixXd::Identity(geometry.Ntheta, geometry.Ntheta);
+		Eigen::MatrixXd EQ_c = E - Q2_c;
+		Eigen::MatrixXd EQ_s = E - Q2_s;
+
+		Eigen::PartialPivLU<Eigen::MatrixXd> lu_c(EQ_c);
+		Eigen::PartialPivLU<Eigen::MatrixXd> lu_s(EQ_s);
+		Eigen::MatrixXd S_c = lu_c.solve(Q1_c);
+		Eigen::MatrixXd S_s = lu_s.solve(Q1_s);
+
+		Eigen::MatrixXd Sexp_c = S_c * expl.asDiagonal();
+		Eigen::MatrixXd Sexp_s = S_s * expl.asDiagonal();
+
+		Eigen::MatrixXd D_c = (m == 0 ? 2.0 : 1.0) * S_c * geometry.WMU_lh * layer.transmittance_m_top_cos[m];
+		Eigen::MatrixXd D_s = (m == 0 ? 2.0 : 1.0) * S_s * geometry.WMU_lh * layer.transmittance_m_top_sin[m];
+
+		D_c = D_c + layer.transmittance_m_top_cos[m] + Sexp_c;
+		D_s = D_s + layer.transmittance_m_top_sin[m] + Sexp_s;
+
+		Eigen::MatrixXd R2exp_c = layer.reflectance_m_top_cos[m] * expl.asDiagonal();
+		Eigen::MatrixXd R2exp_s = layer.reflectance_m_top_sin[m] * expl.asDiagonal();
+
+		Eigen::MatrixXd U_c = (m == 0 ? 2.0 : 1.0) * layer.reflectance_m_top_cos[m] * geometry.WMU_lh * D_c;
+		Eigen::MatrixXd U_s = (m == 0 ? 2.0 : 1.0) * layer.reflectance_m_top_sin[m] * geometry.WMU_lh * D_s;
+
+		U_c = U_c + R2exp_c;
+		U_s = U_s + R2exp_s;
+
+		Eigen::MatrixXd Uexp_c = expu.asDiagonal() * U_c;
+		Eigen::MatrixXd Uexp_s = expu.asDiagonal() * U_s;
+
+		result.reflectance_m_top_cos[m] = (m == 0 ? 2.0 : 1.0) * layer.transmittance_m_bottom_cos[m] * geometry.WMU_uh * U_c;
+		result.reflectance_m_top_sin[m] = (m == 0 ? 2.0 : 1.0) * layer.transmittance_m_bottom_sin[m] * geometry.WMU_uh * U_s;
+
+		result.reflectance_m_top_cos[m] = result.reflectance_m_top_cos[m] + layer.reflectance_m_top_cos[m] + Uexp_c;
+		result.reflectance_m_top_sin[m] = result.reflectance_m_top_sin[m] + layer.reflectance_m_top_sin[m] + Uexp_s;
+
+		Eigen::MatrixXd Dexp_c = expl.asDiagonal() * D_c;
+		Eigen::MatrixXd Dexp_s = expl.asDiagonal() * D_s;
+
+		Eigen::MatrixXd T2exp_c = layer.transmittance_m_top_cos[m] * expl.asDiagonal();
+		Eigen::MatrixXd T2exp_s = layer.transmittance_m_top_sin[m] * expl.asDiagonal();
+
+		result.transmittance_m_top_cos[m] = (m == 0 ? 2.0 : 1.0) * layer.transmittance_m_top_cos[m] * geometry.WMU_lh * D_c;
+		result.transmittance_m_top_sin[m] = (m == 0 ? 2.0 : 1.0) * layer.transmittance_m_top_sin[m] * geometry.WMU_lh * D_s;
+
+		result.transmittance_m_top_cos[m] = result.transmittance_m_top_cos[m] + T2exp_c + Dexp_c;
+		result.transmittance_m_top_sin[m] = result.transmittance_m_top_sin[m] + T2exp_s + Dexp_s;
+
+		if(m == 0 && result.enable_atmospheric_emission == true)
+		{
+			Eigen::VectorXd TE = layer.transmittance_m_bottom_cos[m] * geometry.WMU_uh * layer.source_up + expu.asDiagonal() * layer.source_up;
+			Eigen::VectorXd TRE = layer.transmittance_m_bottom_cos[m] * geometry.WMU_uh * layer.reflectance_m_top_cos[m] * geometry.WMU_lh * layer.source_down + expu.asDiagonal() * layer.reflectance_m_top_cos[m] * geometry.WMU_lh * layer.source_down;
+			Eigen::VectorXd TRSE = layer.transmittance_m_bottom_cos[m] * geometry.WMU_uh * layer.reflectance_m_top_cos[m] * geometry.WMU_lh * S_c * geometry.WMU_lh * layer.source_down;
+			TRSE += expu.asDiagonal() * layer.reflectance_m_top_cos[m] * geometry.WMU_lh * S_c * geometry.WMU_lh * layer.source_down;
+			result.source_up = layer.source_up + TE + TRE + TRSE;
+			result.source_down = result.source_up;
+		}
+	}
+
+	result.reflectance_m_bottom_cos = result.reflectance_m_top_cos;
+	result.transmittance_m_bottom_cos = result.transmittance_m_top_cos;
+
+	result.reflectance_m_bottom_sin = result.reflectance_m_top_sin;
+	result.transmittance_m_bottom_sin = result.transmittance_m_top_sin;
+
+	return result;
+}
+
+inline Layer addLayer(const Layer &layer_bottom, const Layer &layer_top, const Geometry &geometry)
+{
+	Eigen::VectorXd expu_top = Eigen::VectorXd::Zero(geometry.Ntheta);
+	Eigen::VectorXd expl_top = Eigen::VectorXd::Zero(geometry.Ntheta);
+	Eigen::VectorXd expu_bottom = Eigen::VectorXd::Zero(geometry.Ntheta);
+	Eigen::VectorXd expl_bottom = Eigen::VectorXd::Zero(geometry.Ntheta);
+
+	for(int i = 0; i < geometry.Ntheta; i ++)
+	{
+		expu_top(i) = std::exp(-layer_top.optical_thickness / geometry.mu_uh(i));
+		expl_top(i) = std::exp(-layer_top.optical_thickness / geometry.mu_lh(i));
+		expu_bottom(i) = std::exp(-layer_bottom.optical_thickness / geometry.mu_uh(i));
+		expl_bottom(i) = std::exp(-layer_bottom.optical_thickness / geometry.mu_lh(i));
+	}
+
+	auto result = layer_bottom;
+	result.optical_thickness = layer_bottom.optical_thickness + layer_top.optical_thickness;
+
+	if(layer_bottom.enable_atmospheric_emission == true || layer_top.enable_atmospheric_emission == true)
+	{
+		result.enable_atmospheric_emission = true;
+	}
+
+	for(int m = 0; m <= geometry.M; m ++)
+	{
+		Eigen::MatrixXd Q1_c = (m == 0 ? 2.0 : 1.0) * layer_top.reflectance_m_bottom_cos[m] * geometry.WMU_uh * layer_bottom.reflectance_m_top_cos[m];
+		Eigen::MatrixXd Q1_s = (m == 0 ? 2.0 : 1.0) * layer_top.reflectance_m_bottom_sin[m] * geometry.WMU_uh * layer_bottom.reflectance_m_top_sin[m];
+
+		Eigen::MatrixXd Q2_c = (m == 0 ? 2.0 : 1.0) * Q1_c * geometry.WMU_lh;
+		Eigen::MatrixXd Q2_s = (m == 0 ? 2.0 : 1.0) * Q1_s * geometry.WMU_lh;
+
+		Eigen::MatrixXd E = Eigen::MatrixXd::Identity(geometry.Ntheta, geometry.Ntheta);
+		Eigen::MatrixXd EQ_c = E - Q2_c;
+		Eigen::MatrixXd EQ_s = E - Q2_s;
+
+		Eigen::PartialPivLU<Eigen::MatrixXd> lu_c(EQ_c);
+		Eigen::PartialPivLU<Eigen::MatrixXd> lu_s(EQ_s);
+		Eigen::MatrixXd S_c = lu_c.solve(Q1_c);
+		Eigen::MatrixXd S_s = lu_s.solve(Q1_s);
+
+		Eigen::MatrixXd Sexp_c = S_c * expl_top.asDiagonal();
+		Eigen::MatrixXd Sexp_s = S_s * expl_top.asDiagonal();
+
+		Eigen::MatrixXd D_c = (m == 0 ? 2.0 : 1.0) * S_c * geometry.WMU_lh * layer_top.transmittance_m_top_cos[m];
+		Eigen::MatrixXd D_s = (m == 0 ? 2.0 : 1.0) * S_s * geometry.WMU_lh * layer_top.transmittance_m_top_sin[m];
+
+		D_c = D_c + layer_top.transmittance_m_top_cos[m] + Sexp_c;
+		D_s = D_s + layer_top.transmittance_m_top_sin[m] + Sexp_s;
+
+		Eigen::MatrixXd R2exp_c = result.reflectance_m_top_cos[m] * expl_top.asDiagonal();
+		Eigen::MatrixXd R2exp_s = result.reflectance_m_top_sin[m] * expl_top.asDiagonal();
+
+		Eigen::MatrixXd U_c = (m == 0 ? 2.0 : 1.0) * layer_bottom.reflectance_m_top_cos[m] * geometry.WMU_lh * D_c;
+		Eigen::MatrixXd U_s = (m == 0 ? 2.0 : 1.0) * layer_bottom.reflectance_m_top_sin[m] * geometry.WMU_lh * D_s;
+
+		U_c = U_c + R2exp_c;
+		U_s = U_s + R2exp_s;
+
+		Eigen::MatrixXd Uexp_c = expu_top.asDiagonal() * U_c;
+		Eigen::MatrixXd Uexp_s = expu_top.asDiagonal() * U_s;
+
+		result.reflectance_m_top_cos[m] = (m == 0 ? 2.0 : 1.0) * layer_top.transmittance_m_bottom_cos[m] * geometry.WMU_uh * U_c;
+		result.reflectance_m_top_sin[m] = (m == 0 ? 2.0 : 1.0) * layer_top.transmittance_m_bottom_sin[m] * geometry.WMU_uh * U_s;
+
+		result.reflectance_m_top_cos[m] = result.reflectance_m_top_cos[m] + layer_top.reflectance_m_top_cos[m] + Uexp_c;
+		result.reflectance_m_top_sin[m] = result.reflectance_m_top_sin[m] + layer_top.reflectance_m_top_sin[m] + Uexp_s;
+
+		Eigen::MatrixXd Dexp_c = expl_bottom.asDiagonal() * D_c;
+		Eigen::MatrixXd Dexp_s = expl_bottom.asDiagonal() * D_s;
+
+		Eigen::MatrixXd T2exp_c = result.transmittance_m_top_cos[m] * expl_top.asDiagonal();
+		Eigen::MatrixXd T2exp_s = result.transmittance_m_top_sin[m] * expl_top.asDiagonal();
+
+		result.transmittance_m_top_cos[m] = (m == 0 ? 2.0 : 1.0) * layer_bottom.transmittance_m_top_cos[m] * geometry.WMU_lh * D_c;
+		result.transmittance_m_top_sin[m] = (m == 0 ? 2.0 : 1.0) * layer_bottom.transmittance_m_top_sin[m] * geometry.WMU_lh * D_s;
+
+		result.transmittance_m_top_cos[m] = result.transmittance_m_top_cos[m] + T2exp_c + Dexp_c;
+		result.transmittance_m_top_sin[m] = result.transmittance_m_top_sin[m] + T2exp_s + Dexp_s;
+
+		if(m == 0 && result.enable_atmospheric_emission == true)
+		{
+			// Eigen::VectorXd TE = layer_top.transmittance_m_bottom_cos[m] * geometry.WMU_uh * layer_bottom.source_up + expu_top.asDiagonal() * layer_bottom.source_up;
+			// Eigen::VectorXd TRE = layer_top.transmittance_m_bottom_cos[m] * geometry.WMU_uh * layer_bottom.reflectance_m_top_cos[m] * geometry.WMU_lh * layer_bottom.source_down + expu_top.asDiagonal() * layer_bottom.reflectance_m_top_cos[m] * geometry.WMU_lh * layer_bottom.source_down;
+			// Eigen::VectorXd TRSE = layer_top.transmittance_m_bottom_cos[m] * geometry.WMU_uh * layer_bottom.reflectance_m_top_cos[m] * geometry.WMU_lh * S_c * geometry.WMU_lh * layer_bottom.source_down;
+			// TRSE += expu_top.asDiagonal() * layer_bottom.reflectance_m_top_cos[m] * geometry.WMU_lh * S_c * geometry.WMU_lh * layer_bottom.source_down;
+			// result.source_up = layer_top.source_up + TE + TRE + TRSE;
+
+			Eigen::VectorXd TE = layer_top.transmittance_m_bottom_cos[m] * geometry.WMU_uh * layer_bottom.source_up + expu_top.asDiagonal() * layer_bottom.source_up;
+			Eigen::VectorXd TRE = layer_top.transmittance_m_bottom_cos[m] * geometry.WMU_uh * layer_bottom.reflectance_m_top_cos[m] * geometry.WMU_lh * layer_top.source_down;
+			TRE += expu_top.asDiagonal() * layer_bottom.reflectance_m_top_cos[m] * geometry.WMU_lh * layer_top.source_down;
+			Eigen::VectorXd TRSE = layer_top.transmittance_m_bottom_cos[m] * geometry.WMU_uh * layer_bottom.reflectance_m_top_cos[m] * geometry.WMU_lh * S_c * geometry.WMU_lh * layer_top.source_down;
+			TRSE += expu_top.asDiagonal() * layer_bottom.reflectance_m_top_cos[m] * geometry.WMU_lh * S_c * geometry.WMU_lh * layer_top.source_down;
+			// result.source_up = layer_top.source_up + TE + TRE + TRSE;
+			result.source_up = layer_top.source_up + TE + TRE + TRSE;
+
+			// std::cout << TRE << "\n";
+		}
+	}
+
+	return result;
+}
+
+}

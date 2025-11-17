@@ -1,0 +1,322 @@
+#pragma once
+
+#include <chronoflux>
+#include <ctime>
+#include <fstream>
+#include <iomanip>
+#include <iostream>
+#include <optional>
+#include <sstream>
+#include <string>
+#include <vector>
+#include <mutex>
+
+namespace logger
+{
+enum class Level{Trace, Debug, Info, Warn, Error, Fatal};
+
+inline std::string levelName(Level lv)
+{
+	switch (lv)
+	{
+		case Level::Trace:
+		{
+			return "TRACE";
+		}
+		case Level::Debug:
+		{
+			return "DEBUG";
+		}
+		case Level::Info:
+		{
+			return "INFO";
+		}
+		case Level::Warn:
+		{
+			return "WARN";
+		}
+		case Level::Error:
+		{
+			return "ERROR";
+		}
+		case Level::Fatal:
+		{
+			return "FATAL";
+		}
+	}
+
+	return "UNKNOWN";
+}
+
+struct Record
+{
+	Level level;
+	std::string	component;
+	std::string	message;
+};
+
+class ISink
+{
+	public:
+		virtual ~ISink() = default;
+		virtual void write(const Record&) = 0;
+};
+
+class ConsoleSink : public ISink
+{
+	public:
+		ConsoleSink(bool);
+		void write(const Record&) override;
+		
+	private:
+		bool to_stderr_;
+};
+
+class FileSink : public ISink
+{
+	public:
+		FileSink(std::string, bool);
+		void write(const Record&) override;
+		
+	private:
+		std::string path_;
+		std::ofstream ofs_;
+		bool is_append_ = false;
+		void open_();
+};
+
+class Log; // Logクラスの前方宣言
+
+class LogLine
+{
+private:
+	Log* logger_;
+	Level level_;
+	std::string component_;
+	bool is_active_;
+	std::ostringstream oss_;
+
+public:
+	LogLine(Log*, Level, std::string, bool);
+	LogLine(const LogLine&) = delete;
+	LogLine& operator=(const LogLine&) = delete;
+	LogLine(LogLine&&) noexcept;
+	template<typename T> LogLine& operator<<(const T&);
+	~LogLine();
+};
+
+class Log
+{
+	private:
+		Level min_level_;
+		std::vector<std::shared_ptr<ISink>> sinks_;
+		std::mutex mutex_;
+
+		void dispatch(const Record&);
+
+		friend class LogLine;
+
+	public:
+		void setMinLevel(Level);
+		void addSink(std::shared_ptr<ISink>);
+		void addSink(void);
+		template<typename T> requires std::same_as<T, bool> void addSink(T);
+		template<typename T> requires (std::same_as<T, std::string> || std::convertible_to<T, std::string>) void addSink(T&& path_source, bool is_append = false);
+
+		// ★ ロギングAPIを LogLine を返すストリーム形式に変更
+        LogLine trace(std::string);
+        LogLine debug(std::string);
+        LogLine info(std::string);
+        LogLine warn(std::string);
+        LogLine error(std::string);
+        LogLine fatal(std::string);
+        
+        // ★ ScopedTimer が動的なレベルでストリームを取得するためのヘルパー
+        LogLine logstream(Level level, std::string);
+};
+
+class ScopedTimer
+{
+private:
+	Log& logger_;
+	Level level_;
+	std::string component_;
+	std::string timer_name_;
+	chronoflux::TimePoint start_time_; // 処理時間計測用の高精度クロック
+
+public:
+	ScopedTimer(Log&, std::string, std::string, Level);
+	~ScopedTimer();
+};
+
+inline ConsoleSink::ConsoleSink(bool to_stderr = false)
+{
+	to_stderr_ = to_stderr;
+}
+
+inline void ConsoleSink::write(const Record& r)
+{
+	std::ostream& os = to_stderr_ ? std::cerr : std::cout;
+	
+	os << chronoflux::now(9.0).format("%4Y-%2m-%2d %2H:%2M:%2S.%3f") << " [" << levelName(r.level) << "]" << std::flush;
+
+	if (!r.component.empty())
+	{
+		os << " {" << r.component << "}" << std::flush;
+	}
+
+	os << " " << r.message << std::endl << std::flush;
+}
+
+inline FileSink::FileSink(std::string path, bool is_append = false)
+{
+	path_ = std::move(path);
+	is_append_ = is_append;
+	
+	open_();
+}
+
+inline void FileSink::write(const Record& r)
+{
+	if (!ofs_.is_open()) open_();
+
+	ofs_ << chronoflux::now(9.0).format("%4Y-%2m-%2d %2H:%2M:%2S.%3f") << " [" << levelName(r.level) << "]" << std::flush;
+	
+	if (!r.component.empty())
+	{
+		ofs_ << " {" << r.component << "}" << std::flush;
+	}
+
+	ofs_ << " " << r.message << "\n" << std::flush;
+}
+
+inline void FileSink::open_()
+{
+	is_append_ ? ofs_.open(path_, std::ios::out | std::ios::app) : ofs_.open(path_, std::ios::out);
+}
+
+inline void Log::dispatch(const Record& record)
+{
+	std::lock_guard<std::mutex> lock(mutex_);
+
+	for(auto& sink : sinks_)
+	{
+		sink->write(record);
+	}
+}
+
+inline void Log::setMinLevel(Level level)
+{
+	min_level_ = level;
+}
+
+inline void Log::addSink(std::shared_ptr<ISink> sink)
+{
+	std::lock_guard<std::mutex> lock(mutex_);
+	sinks_.push_back(sink);
+}
+
+inline void Log::addSink(void)
+{
+	addSink(std::make_shared<ConsoleSink>(false));
+}
+
+template<typename T> requires std::same_as<T, bool> inline void Log::addSink(T is_stderr)
+{
+	addSink(std::make_shared<ConsoleSink>(is_stderr));
+}
+
+template<typename T> requires (std::same_as<T, std::string> || std::convertible_to<T, std::string>) inline void Log::addSink(T&& path_source, bool is_append)
+{
+	// Tがconst char*の場合もstd::stringに変換される
+	std::string path = std::forward<T>(path_source);
+	addSink(std::make_shared<FileSink>(path, is_append));
+}
+
+inline LogLine::LogLine(Log* logger, Level level, std::string component, bool active) : logger_(logger), level_(level), component_(std::move(component)), is_active_(active)
+{
+	;
+}
+
+inline LogLine::LogLine(LogLine&& other) noexcept : logger_(other.logger_), level_(other.level_), component_(std::move(other.component_)), is_active_(other.is_active_), oss_(std::move(other.oss_))
+{
+	other.is_active_ = false; 
+}
+
+template<typename T> inline LogLine& LogLine::operator<<(const T& msg)
+{
+	if (is_active_)
+	{
+		oss_ << msg;
+	}
+
+	return *this;
+}
+
+inline LogLine::~LogLine()
+{
+	if (is_active_ && logger_)
+	{
+		logger_->dispatch(Record{level_, std::move(component_), oss_.str()});
+	}
+}
+
+inline LogLine Log::trace(std::string component)
+{
+	bool active = min_level_ <= Level::Trace;
+	return LogLine(this, Level::Trace, std::move(component), active);
+}
+
+inline LogLine Log::debug(std::string component)
+{
+	bool active = min_level_ <= Level::Debug;
+	return LogLine(this, Level::Debug, std::move(component), active);
+}
+
+inline LogLine Log::info(std::string component)
+{
+	bool active = min_level_ <= Level::Info;
+	return LogLine(this, Level::Info, std::move(component), active);
+}
+
+inline LogLine Log::warn(std::string component)
+{
+	bool active = min_level_ <= Level::Warn;
+	return LogLine(this, Level::Warn, std::move(component), active);
+}
+
+inline LogLine Log::error(std::string component)
+{
+	bool active = min_level_ <= Level::Error;
+	return LogLine(this, Level::Error, std::move(component), active);
+}
+
+inline LogLine Log::fatal(std::string component)
+{
+	bool active = min_level_ <= Level::Fatal;
+	return LogLine(this, Level::Fatal, std::move(component), active);
+}
+
+inline LogLine Log::logstream(Level level, std::string component)
+{
+	bool active = min_level_ <= level;
+	return LogLine(this, level, std::move(component), active);
+}
+
+inline ScopedTimer::ScopedTimer(Log& logger, std::string component, std::string timer_name, Level level = Level::Info) : logger_(logger), level_(level), component_(std::move(component)), timer_name_(std::move(timer_name)), start_time_(chronoflux::now(9.0))
+{
+	;
+}
+
+inline ScopedTimer::~ScopedTimer()
+{
+	// std::ostringstream oss;
+	// oss << timer_name_ << " took " << std::fixed << std::setprecision(3) << (getTime() - start_time_).toTotalMilliseconds() << " ms";
+		
+	// 4. 汎用logメソッドを使ってログを出力
+	// logger_.log(level_, component_, oss.str());
+
+	logger_.logstream(level_, component_) << timer_name_ << " took " << std::fixed << std::setprecision(3) << (chronoflux::now(9.0) - start_time_).toTotalMilliseconds() << " ms";
+}
+
+}

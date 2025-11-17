@@ -1,0 +1,463 @@
+#pragma once
+
+#include<complex>
+#include<random>
+#include<filesystem>
+#include<fstream>
+#include<omp.h>
+#include<iomanip>
+#include<thread>
+#include<chrono>
+
+#include<Eigen/Dense>
+
+#include"types"
+#include"constants"
+#include"utilities"
+
+namespace radiative_transfer
+{
+/*
+inline void AtmosphereModel::initializeGeometry(void)
+{
+	if(Ntheta % 2 == 0)
+	{
+		Ntheta ++;
+	}
+
+	if(Nphi % 2 == 0)
+	{
+		Nphi ++;
+	}
+
+	if(M != -99 && Nphi == -99)
+	{
+		Nphi = M * 2 + 3;
+	}
+	else if(Nphi != -99 && M == -99)
+	{
+		if(Nphi % 2 == 0)
+		{
+			Nphi ++;
+		}
+
+		M = (Nphi - 3) / 2;
+	}
+	else if(Nphi == -99 && M == -99)
+	{
+		Nphi = Ntheta * 4 + 1;
+		M = (Nphi - 3) / 2;
+	}
+
+	geometry.Ntheta = Ntheta;
+	geometry.Nphi = Nphi;
+	geometry.M = M;
+
+	//Nphi = M * 2 + 3;
+	geometry.phi = Eigen::VectorXd::Zero(Nphi);
+	geometry.d_phi = 2.0 * PI / double(Nphi);
+
+	for(int i = 0; i < Nphi; i ++)
+	{
+		geometry.phi(i) = double(i) * geometry.d_phi;
+	}
+
+	geometry.theta_uh = Eigen::VectorXd::Zero(Ntheta);
+	geometry.theta_lh = Eigen::VectorXd::Zero(Ntheta);
+	geometry.theta_all = Eigen::VectorXd::Zero(Ntheta * 2);
+	geometry.mu_uh = Eigen::VectorXd::Zero(Ntheta);
+	geometry.mu_lh = Eigen::VectorXd::Zero(Ntheta);
+	geometry.weight_uh = Eigen::VectorXd::Zero(Ntheta);
+	geometry.weight_lh = Eigen::VectorXd::Zero(Ntheta);
+
+	geometry.WMU_uh = Eigen::MatrixXd::Zero(Ntheta, Ntheta);
+	geometry.WMU_lh = Eigen::MatrixXd::Zero(Ntheta, Ntheta);
+
+	double eps = PI / 2.0 / double(Ntheta - 1) * 1.0E-3;
+	double dtheta = (PI / 2.0 - eps) / double(Ntheta - 1);
+
+	// #pragma omp parallel for
+	for(int i = 0; i < Ntheta; i ++)
+	{	
+		geometry.theta_uh(i) = 0.0 + dtheta * double(i);
+		geometry.theta_lh(i) = PI - dtheta * double(i);
+		geometry.mu_uh(i) = std::abs(std::cos(geometry.theta_uh(i)));
+		geometry.mu_lh(i) = std::abs(std::cos(geometry.theta_lh(i)));
+
+		geometry.theta_all(i) = geometry.theta_uh(i);
+		geometry.theta_all(Ntheta * 2 - 1 - i) = geometry.theta_lh(i);
+	}
+
+	// #pragma omp parallel for
+	for(int i = 0; i < Ntheta; i ++)
+	{
+		if(i <= Ntheta - 3)
+		{
+			if(i == 0 || i == Ntheta - 3)
+			{
+				geometry.weight_uh(i) = 1.0 / 3.0 * dtheta * std::sin(geometry.theta_uh(i));
+				geometry.weight_lh(i) = 1.0 / 3.0 * dtheta * std::sin(geometry.theta_lh(i));
+			}
+			else if(i % 2 == 1)
+			{
+				geometry.weight_uh(i) = 4.0 / 3.0 * dtheta * std::sin(geometry.theta_uh(i));
+				geometry.weight_lh(i) = 4.0 / 3.0 * dtheta * std::sin(geometry.theta_lh(i));
+			}
+			else
+			{
+				geometry.weight_uh(i) = 2.0 / 3.0 * dtheta * std::sin(geometry.theta_uh(i));
+				geometry.weight_lh(i) = 2.0 / 3.0 * dtheta * std::sin(geometry.theta_lh(i));
+			}
+		}
+
+		if(i == Ntheta - 3)
+		{
+			geometry.weight_uh(i) += ((1.0 / (6.0 * dtheta * dtheta)) * std::pow(2.0 * dtheta + eps, 3) - (3.0 / (4.0 * dtheta)) * std::pow(2.0 * dtheta + eps, 2) + (2.0 * dtheta + eps)) * std::sin(geometry.theta_uh(i));
+			geometry.weight_lh(i) += ((1.0 / (6.0 * dtheta * dtheta)) * std::pow(2.0 * dtheta + eps, 3) - (3.0 / (4.0 * dtheta)) * std::pow(2.0 * dtheta + eps, 2) + (2.0 * dtheta + eps)) * std::sin(geometry.theta_lh(i));
+		}
+		else if(i == Ntheta - 2)
+		{
+			geometry.weight_uh(i) = ((- 1.0 / (3.0 * dtheta * dtheta)) * std::pow(2.0 * dtheta + eps, 3) + (1.0 / dtheta) * std::pow(2.0 * dtheta + eps, 2)) * std::sin(geometry.theta_uh(i));
+			geometry.weight_lh(i) = ((- 1.0 / (3.0 * dtheta * dtheta)) * std::pow(2.0 * dtheta + eps, 3) + (1.0 / dtheta) * std::pow(2.0 * dtheta + eps, 2)) * std::sin(geometry.theta_lh(i));
+		}
+		else if(i == Ntheta - 1)
+		{
+			geometry.weight_uh(i) = ((1.0 / (6.0 * dtheta * dtheta)) * std::pow(2.0 * dtheta + eps, 3) - (1.0 / (4.0 * dtheta)) * std::pow(2.0 * dtheta + eps, 2)) * std::sin(geometry.theta_uh(i));
+			geometry.weight_lh(i) = ((1.0 / (6.0 * dtheta * dtheta)) * std::pow(2.0 * dtheta + eps, 3) - (1.0 / (4.0 * dtheta)) * std::pow(2.0 * dtheta + eps, 2)) * std::sin(geometry.theta_lh(i));
+		}
+	}
+
+	// #pragma omp parallel for
+	for(int i = 0; i < Ntheta; i ++)
+	{
+		geometry.WMU_uh(i, i) = geometry.weight_uh(i) * geometry.mu_uh(i);
+		geometry.WMU_lh(i, i) = geometry.weight_lh(i) * geometry.mu_lh(i);
+	}
+
+	return;
+}
+*/
+
+inline std::vector<std::vector<std::vector<double>>> RadiativeTransfer::reconstruct(const std::vector<std::vector<std::vector<std::vector<double>>>>& F)
+{
+	std::vector<std::vector<std::vector<double>>> f = std::vector<std::vector<std::vector<double>>>(Ntheta, std::vector<std::vector<double>>(Ntheta, std::vector<double>(Nphi, 0.0)));
+
+	// double d_phi = geometry.phi[1] - geometry.phi[0];
+
+	int M = F.size() - 1;
+
+	// #pragma omp parallel for
+	for(int j = 0; j < Ntheta; j ++)
+	{
+		for(int k = 0; k < Ntheta; k ++)
+		{
+			for(int l = 0; l < Nphi; l ++)
+			{
+				f[j][k][l] += F[0][j][k][0];
+
+				for(int i = 1; i <= M; i ++)
+				{
+					f[j][k][l] += 2.0 * (F[i][j][k][0] * std::cos(double(i) * geometry.phi[l]) + F[i][j][k][1] * std::sin(double(i) * geometry.phi[l]));
+				}
+			}
+		}
+	}
+
+	return f;
+}
+
+inline void RadiativeTransfer::reconstructOpticalProperties(Layer &layer)
+{
+	std::vector<std::vector<std::vector<std::vector<double>>>> R_cs_top = std::vector<std::vector<std::vector<std::vector<double>>>>(M + 1, std::vector<std::vector<std::vector<double>>>(Ntheta, std::vector<std::vector<double>>(Ntheta, std::vector<double>(2, 0.0))));
+	std::vector<std::vector<std::vector<std::vector<double>>>> R_cs_bottom = std::vector<std::vector<std::vector<std::vector<double>>>>(M + 1, std::vector<std::vector<std::vector<double>>>(Ntheta, std::vector<std::vector<double>>(Ntheta, std::vector<double>(2, 0.0))));
+	std::vector<std::vector<std::vector<std::vector<double>>>> T_cs_top = std::vector<std::vector<std::vector<std::vector<double>>>>(M + 1, std::vector<std::vector<std::vector<double>>>(Ntheta, std::vector<std::vector<double>>(Ntheta, std::vector<double>(2, 0.0))));
+	std::vector<std::vector<std::vector<std::vector<double>>>> T_cs_bottom = std::vector<std::vector<std::vector<std::vector<double>>>>(M + 1, std::vector<std::vector<std::vector<double>>>(Ntheta, std::vector<std::vector<double>>(Ntheta, std::vector<double>(2, 0.0))));
+
+	for(int m = 0; m < R_cs_top.size(); m ++)
+	{
+		for(int e = 0; e < geometry.Ntheta; e ++)
+		{
+			for(int i = 0; i < geometry.Ntheta; i ++)
+			{
+				R_cs_top[m][e][i][0] = layer.reflectance_m_top_cos[m](e, i);
+				R_cs_top[m][e][i][1] = layer.reflectance_m_top_sin[m](e, i);
+				
+				R_cs_bottom[m][e][i][0] = layer.reflectance_m_bottom_cos[m](e, i);
+				R_cs_bottom[m][e][i][1] = layer.reflectance_m_bottom_sin[m](e, i);
+
+				T_cs_top[m][e][i][0] = layer.transmittance_m_top_cos[m](e, i);
+				T_cs_top[m][e][i][1] = layer.transmittance_m_top_sin[m](e, i);
+
+				T_cs_bottom[m][e][i][0] = layer.transmittance_m_bottom_cos[m](e, i);
+				T_cs_bottom[m][e][i][1] = layer.transmittance_m_bottom_sin[m](e, i);
+			}
+		}
+	}
+
+	// int n_phi = M * 2 + 3;
+	layer.reflectance_top = reconstruct(R_cs_top);
+	layer.reflectance_bottom = reconstruct(R_cs_bottom);
+	layer.transmittance_top = reconstruct(T_cs_top);
+	layer.transmittance_bottom = reconstruct(T_cs_bottom);
+
+	return;
+}
+
+/*
+inline std::vector<std::vector<std::vector<std::vector<double>>>> AtmosphereModel::computeFourierSeriesCoefficients(const std::vector<std::vector<std::vector<double>>>& f, int M)
+{
+	std::vector<std::vector<std::vector<std::vector<double>>>> F = std::vector<std::vector<std::vector<std::vector<double>>>>(M + 1, std::vector<std::vector<std::vector<double>>>(Ntheta, std::vector<std::vector<double>>(Ntheta, std::vector<double>(2, 0.0))));
+	
+	// double d_phi = geometry.phi[1] - geometry.phi[0];
+
+	// std::cout << d_phi << std::endl;
+	// std::cout << f.size() << std::endl;
+
+	// 台形公式で積分
+	#pragma omp parallel for
+	for(int i = 0; i <= M; i ++)
+	{
+		for(int j = 0; j < Ntheta; j ++)
+		{
+			for(int k = 0; k < Ntheta; k ++)
+			{
+				for(int l = 0; l < Nphi; l ++)
+				{
+					F[i][j][k][0] += f[j][k][l] * std::cos(double(i) * geometry.phi[l]);
+					F[i][j][k][1] += f[j][k][l] * std::sin(double(i) * geometry.phi[l]);
+				}
+
+				// F[i][j][k][0] += f[j][k][0];
+				// F[i][j][k][1] += 0.0;
+
+				F[i][j][k][0] *= geometry.d_phi / (2.0 * PI);
+				F[i][j][k][1] *= geometry.d_phi / (2.0 * PI);
+			}
+		}
+	}
+
+	return F;
+}
+*/
+
+inline std::vector<std::vector<Eigen::MatrixXd>> RadiativeTransfer::computeFourierSeriesCoefficients(const std::vector<std::vector<std::vector<double>>>& f, int M)
+{
+	// std::vector<std::vector<std::vector<std::vector<double>>>> F = std::vector<std::vector<std::vector<std::vector<double>>>>(M + 1, std::vector<std::vector<std::vector<double>>>(Ntheta, std::vector<std::vector<double>>(Ntheta, std::vector<double>(2, 0.0))));
+
+	double factor = geometry.d_phi / (2.0 * PI);
+
+	std::vector<Eigen::MatrixXd> Fcos = std::vector<Eigen::MatrixXd>(M + 1, Eigen::MatrixXd::Zero(Ntheta, Ntheta));
+	std::vector<Eigen::MatrixXd> Fsin = std::vector<Eigen::MatrixXd>(M + 1, Eigen::MatrixXd::Zero(Ntheta, Ntheta));
+
+	// double d_phi = geometry.phi[1] - geometry.phi[0];
+
+	// std::cout << d_phi << std::endl;
+	// std::cout << f.size() << std::endl;
+
+	Eigen::MatrixXd C = Eigen::MatrixXd::Ones((M + 1), Nphi);
+	Eigen::MatrixXd S = Eigen::MatrixXd::Zero((M + 1), Nphi);
+	Eigen::RowVectorXd cphi(Nphi);
+	Eigen::RowVectorXd sphi(Nphi);
+
+	for(int p = 0; p < Nphi; p ++)
+	{
+		cphi(p) = std::cos(geometry.phi[p]);
+		sphi(p) = std::sin(geometry.phi[p]);
+	}
+
+	for(int i = 1; i <= M; i ++)
+	{
+		C.row(i) = C.row(i - 1).cwiseProduct(cphi) - S.row(i - 1).cwiseProduct(sphi);
+		S.row(i) = S.row(i - 1).cwiseProduct(cphi) + C.row(i - 1).cwiseProduct(sphi);
+	}
+
+	// 台形公式で積分
+	// #pragma omp parallel for
+	for(int i = 0; i <= M; i ++)
+	{
+		for(int j = 0; j < Ntheta; j ++)
+		{
+			for(int k = 0; k < Ntheta; k ++)
+			{
+				const Eigen::Map<const Eigen::RowVectorXd> fjk(f[j][k].data(), Nphi);
+				Fcos[i](j, k) = fjk.dot(C.row(i)) * factor;
+				Fsin[i](j, k) = fjk.dot(S.row(i)) * factor;
+			}
+		}
+	}
+
+	return {Fcos, Fsin};
+}
+
+inline void RadiativeTransfer::computeFourierSeriesCoefficients(Layer &layer)
+{
+	auto R_cs_top = computeFourierSeriesCoefficients(layer.reflectance_top, M);
+	auto R_cs_bottom = computeFourierSeriesCoefficients(layer.reflectance_bottom, M);
+	auto T_cs_top = computeFourierSeriesCoefficients(layer.transmittance_top, M);
+	auto T_cs_bottom = computeFourierSeriesCoefficients(layer.transmittance_bottom, M);
+
+	layer.reflectance_m_top_cos = R_cs_top[0];
+	layer.reflectance_m_top_sin = R_cs_top[1];
+
+	layer.reflectance_m_bottom_cos = R_cs_bottom[0];
+	layer.reflectance_m_bottom_sin = R_cs_bottom[1];
+
+	layer.transmittance_m_top_cos = T_cs_top[0];
+	layer.transmittance_m_top_sin = T_cs_top[1];
+
+	layer.transmittance_m_bottom_cos = T_cs_bottom[0];
+	layer.transmittance_m_bottom_sin = T_cs_bottom[1];
+
+	return;
+}
+
+inline void RadiativeTransfer::initializeGeometry(void)
+{
+	Ntheta = configuration.n_theta;
+	Nphi = configuration.n_phi;
+	M = configuration.n_mode;
+
+	// atmosphere_model.initializeGeometry();
+
+	if(configuration.grid_type == GridType::Regular)
+	{
+		if(Ntheta % 2 == 0)
+		{
+			Ntheta ++;
+		}
+	}
+
+	if(Nphi % 2 == 0)
+	{
+		Nphi ++;
+	}
+
+	if(M != -99 && Nphi == -99)
+	{
+		Nphi = M * 2 + 3;
+	}
+	else if(Nphi != -99 && M == -99)
+	{
+		if(Nphi % 2 == 0)
+		{
+			Nphi ++;
+		}
+
+		M = (Nphi - 3) / 2;
+	}
+	else if(Nphi == -99 && M == -99)
+	{
+		Nphi = Ntheta * 4 + 1;
+		M = (Nphi - 3) / 2;
+	}
+
+	geometry.Ntheta = Ntheta;
+	geometry.Nphi = Nphi;
+	geometry.M = M;
+
+	//Nphi = M * 2 + 3;
+	geometry.phi = Eigen::VectorXd::Zero(Nphi);
+	geometry.d_phi = 2.0 * PI / double(Nphi);
+
+	for(int i = 0; i < Nphi; i ++)
+	{
+		geometry.phi(i) = double(i) * geometry.d_phi;
+	}
+
+	geometry.theta_uh = Eigen::VectorXd::Zero(Ntheta);
+	geometry.theta_lh = Eigen::VectorXd::Zero(Ntheta);
+	geometry.theta_all = Eigen::VectorXd::Zero(Ntheta * 2);
+	geometry.mu_uh = Eigen::VectorXd::Zero(Ntheta);
+	geometry.mu_lh = Eigen::VectorXd::Zero(Ntheta);
+	geometry.weight_uh = Eigen::VectorXd::Zero(Ntheta);
+	geometry.weight_lh = Eigen::VectorXd::Zero(Ntheta);
+
+	geometry.WMU_uh = Eigen::MatrixXd::Zero(Ntheta, Ntheta);
+	geometry.WMU_lh = Eigen::MatrixXd::Zero(Ntheta, Ntheta);
+
+	if(configuration.grid_type == GridType::Regular)
+	{
+		double eps = PI / 2.0 / double(Ntheta - 1) * 1.0E-3;
+		double dtheta = (PI / 2.0 - eps) / double(Ntheta - 1);
+
+		// #pragma omp parallel for
+		for(int i = 0; i < Ntheta; i ++)
+		{	
+			geometry.theta_uh(i) = 0.0 + dtheta * double(i);
+			geometry.theta_lh(i) = PI - dtheta * double(i);
+			geometry.mu_uh(i) = std::abs(std::cos(geometry.theta_uh(i)));
+			geometry.mu_lh(i) = std::abs(std::cos(geometry.theta_lh(i)));
+
+			geometry.theta_all(i) = geometry.theta_uh(i);
+			geometry.theta_all(Ntheta * 2 - 1 - i) = geometry.theta_lh(i);
+		}
+
+		// #pragma omp parallel for
+		for(int i = 0; i < Ntheta; i ++)
+		{
+			if(i <= Ntheta - 3)
+			{
+				if(i == 0 || i == Ntheta - 3)
+				{
+					geometry.weight_uh(i) = 1.0 / 3.0 * dtheta * std::sin(geometry.theta_uh(i));
+					geometry.weight_lh(i) = 1.0 / 3.0 * dtheta * std::sin(geometry.theta_lh(i));
+				}
+				else if(i % 2 == 1)
+				{
+					geometry.weight_uh(i) = 4.0 / 3.0 * dtheta * std::sin(geometry.theta_uh(i));
+					geometry.weight_lh(i) = 4.0 / 3.0 * dtheta * std::sin(geometry.theta_lh(i));
+				}
+				else
+				{
+					geometry.weight_uh(i) = 2.0 / 3.0 * dtheta * std::sin(geometry.theta_uh(i));
+					geometry.weight_lh(i) = 2.0 / 3.0 * dtheta * std::sin(geometry.theta_lh(i));
+				}
+			}
+
+			if(i == Ntheta - 3)
+			{
+				geometry.weight_uh(i) += ((1.0 / (6.0 * dtheta * dtheta)) * std::pow(2.0 * dtheta + eps, 3) - (3.0 / (4.0 * dtheta)) * std::pow(2.0 * dtheta + eps, 2) + (2.0 * dtheta + eps)) * std::sin(geometry.theta_uh(i));
+				geometry.weight_lh(i) += ((1.0 / (6.0 * dtheta * dtheta)) * std::pow(2.0 * dtheta + eps, 3) - (3.0 / (4.0 * dtheta)) * std::pow(2.0 * dtheta + eps, 2) + (2.0 * dtheta + eps)) * std::sin(geometry.theta_lh(i));
+			}
+			else if(i == Ntheta - 2)
+			{
+				geometry.weight_uh(i) = ((- 1.0 / (3.0 * dtheta * dtheta)) * std::pow(2.0 * dtheta + eps, 3) + (1.0 / dtheta) * std::pow(2.0 * dtheta + eps, 2)) * std::sin(geometry.theta_uh(i));
+				geometry.weight_lh(i) = ((- 1.0 / (3.0 * dtheta * dtheta)) * std::pow(2.0 * dtheta + eps, 3) + (1.0 / dtheta) * std::pow(2.0 * dtheta + eps, 2)) * std::sin(geometry.theta_lh(i));
+			}
+			else if(i == Ntheta - 1)
+			{
+				geometry.weight_uh(i) = ((1.0 / (6.0 * dtheta * dtheta)) * std::pow(2.0 * dtheta + eps, 3) - (1.0 / (4.0 * dtheta)) * std::pow(2.0 * dtheta + eps, 2)) * std::sin(geometry.theta_uh(i));
+				geometry.weight_lh(i) = ((1.0 / (6.0 * dtheta * dtheta)) * std::pow(2.0 * dtheta + eps, 3) - (1.0 / (4.0 * dtheta)) * std::pow(2.0 * dtheta + eps, 2)) * std::sin(geometry.theta_lh(i));
+			}
+		}
+	}
+	else if(configuration.grid_type == GridType::GaussRadau)
+	{
+		auto node_weight = computeGaussRadauQuadratureNodeWeight(Ntheta);
+
+		for(int i = 0; i < node_weight.size(); i ++)
+		{
+			geometry.mu_uh(i) = node_weight[node_weight.size() - 1 - i][0];
+			geometry.mu_lh(i) = node_weight[node_weight.size() - 1 - i][0];
+			geometry.theta_uh(i) = std::acos(node_weight[node_weight.size() - 1 - i][0]);
+			geometry.theta_lh(i) = PI - std::acos(node_weight[node_weight.size() - 1 - i][0]);
+
+			geometry.theta_all(i) = geometry.theta_uh(i);
+			geometry.theta_all(Ntheta * 2 - 1 - i) = geometry.theta_lh(i);
+
+			geometry.weight_uh(i) = node_weight[node_weight.size() - 1 - i][1];
+			geometry.weight_lh(i) = node_weight[node_weight.size() - 1 - i][1];
+		}
+	}
+
+	// #pragma omp parallel for
+	for(int i = 0; i < Ntheta; i ++)
+	{
+		geometry.WMU_uh(i, i) = geometry.weight_uh(i) * geometry.mu_uh(i);
+		geometry.WMU_lh(i, i) = geometry.weight_lh(i) * geometry.mu_lh(i);
+	}
+
+	return;
+}
+
+}

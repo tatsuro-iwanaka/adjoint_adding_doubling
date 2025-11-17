@@ -1,0 +1,390 @@
+#pragma once
+
+#include<fstream>
+#include<iostream>
+#include<map>
+#include<sstream>
+#include<string>
+#include<vector>
+#include<algorithm>
+#include<cmath>
+
+#include"constants"
+#include"types"
+
+namespace radiative_transfer
+{
+std::string toUpper(std::string);
+std::string toLower(std::string);
+UnitInfo getUnitInfo(std::string);
+double scaleUnit(std::string, std::string);
+std::vector<std::string> splitString(std::string, char);
+double computeInverseErrorFunction(double, double, int);
+std::vector<std::vector<double>> computeGaussianQuadratureNodeWeight(int);
+double computeGaussianQuadrature(std::vector<std::vector<double>>, std::vector<std::vector<double>>);
+double findLegendreZero(int, double, int);
+double computeTrapezoidalIntegration(const std::vector<std::vector<double>>&);
+double computeSimpsonIntegration(const std::vector<std::vector<double>>&);
+std::vector<std::vector<double>> computeGaussRadauQuadratureNodeWeight(int);
+void normalizeWindowFunction(std::vector<double>&);
+
+inline std::string toUpper(std::string s)
+{
+	std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c){return std::toupper(c);});
+	return s;
+}
+
+inline std::string toLower(std::string s)
+{
+	std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c){return std::tolower(c);});
+	return s;
+}
+
+inline UnitInfo getUnitInfo(std::string unit_input)
+{
+	std::string u = toLower(unit_input);
+	// 長さ
+	if (u == "m") return { UnitDim::Length, 1.0 };
+	if (u == "km") return { UnitDim::Length, 1.0E3 };
+	if (u == "cm") return { UnitDim::Length, 1.0E-2 };
+	if (u == "mm") return { UnitDim::Length, 1.0E-3 };
+	if (u == "um" || u == "micron") return { UnitDim::Length, 1.0E-6 };
+	if (u == "nm") return { UnitDim::Length, 1.0E-9 };
+	// 面積
+	if (u == "m2") return { UnitDim::Area, 1.0 };
+	if (u == "km2") return { UnitDim::Area, 1.0E6 };
+	if (u == "cm2") return { UnitDim::Area, 1.0E-4 };
+	if (u == "mm2") return { UnitDim::Area, 1.0E-6 };
+	if (u == "um2" || u == "micron2") return { UnitDim::Area, 1.0E-12 };
+	if (u == "nm2") return { UnitDim::Area, 1.0E-18 };
+	// 質量
+	if (u == "kg") return { UnitDim::Mass, 1.0 };
+	if (u == "g") return { UnitDim::Mass, 1.0E-3 };
+	// 温度
+	if (u == "k") return { UnitDim::Temperature, 1.0};
+	//圧力
+	if (u == "pa" || u == "pascal") return { UnitDim::Pressure, 1.0};
+	if (u == "hpa" || u == "mbar") return { UnitDim::Pressure, 1.0E2};  // 1 hPa=100 Pa
+	if (u == "bar") return { UnitDim::Pressure, 1.0E5};  // 1 bar=100 000 Pa
+	if (u == "atm") return { UnitDim::Pressure, 101325.0};
+	if (u == "torr" || u=="mmhg") return { UnitDim::Pressure, 101325.0 / 760.0};
+	// --- 数密度 ---
+	if (u == "m-3" || u == "1/m3") return { UnitDim::NumberDensity, 1.0 };
+	if (u == "cm-3" || u == "1/cm3") return { UnitDim::NumberDensity, 1.0E6 };
+	if (u == "mm-3" || u == "1/mm3") return { UnitDim::NumberDensity, 1.0E9 };
+	if (u == "um-3" || u == "1/um3" || u == "micron-3" || u == "1/micron3") return { UnitDim::NumberDensity, 1.0E18 };
+	if (u == "nm-3" || u == "1/nm3") return { UnitDim::NumberDensity, 1.0E27 };
+	// --- 柱数密度 ---
+	if (u == "m-2" || u == "1/m2") return { UnitDim::ColumnNumberDensity, 1.0 };
+	if (u == "cm-2" || u == "1/cm2") return { UnitDim::ColumnNumberDensity, 1.0E4 };
+	if (u == "mm-2" || u == "1/mm2") return { UnitDim::ColumnNumberDensity, 1.0E6 };
+	if (u == "um-2" || u == "1/um2" || u == "micron-2" || u == "1/micron2") return { UnitDim::ColumnNumberDensity, 1.0E12 };
+	if (u == "nm-2" || u == "1/nm2") return { UnitDim::ColumnNumberDensity, 1.0E18 };
+	// --- 波数 ---
+	if (u == "m-1" || u == "1/m") return { UnitDim::Wavenumber, 1.0 };
+	if (u == "cm-1" || u == "1/cm" || u == "kayser") return { UnitDim::Wavenumber, 1.0E2 };
+	if (u == "km-1" || u == "1/km") return { UnitDim::Wavenumber, 1.0E-3 };
+	if (u == "um-1" || u == "1/um" || u == "micron-1"   || u == "1/micron") return { UnitDim::Wavenumber, 1.0E6 };
+	if (u == "nm-1" || u == "1/nm") return { UnitDim::Wavenumber, 1.0E9 };
+	// 無次元
+	if (u == "1" || u == "none" || u == "mol/mol") return { UnitDim::Dimensionless, 1.0 };
+	if (u == "ppm") return { UnitDim::Dimensionless, 1.0E-6 };
+	if (u == "ppb") return { UnitDim::Dimensionless, 1.0E-9 };
+	if (u == "ppt") return { UnitDim::Dimensionless, 1.0E-12 };
+	
+	throw std::runtime_error("Unknown unit: " + unit_input);
+}
+
+inline double scaleUnit(std::string unit_input, std::string unit_output)
+{
+	UnitInfo inInfo = getUnitInfo(unit_input);
+	UnitInfo outInfo = getUnitInfo(unit_output);
+
+	if (inInfo.dim != outInfo.dim)
+	{
+		throw std::runtime_error("Unit dimension mismatch: cannot convert from `" + unit_input + "` to `" + unit_output + "`");
+	}
+	// input→SI→output の合成倍率
+	return inInfo.to_si / outInfo.to_si;
+}
+
+inline std::vector<std::string> splitString(std::string str, char del) 
+{
+	int first = 0;
+	int last = str.find_first_of(del);
+
+	std::vector<std::string> result;
+
+	while (first < str.size())
+	{
+		std::string subStr(str, first, last - first);
+
+		result.push_back(subStr);
+
+		first = last + 1;
+		last = str.find_first_of(del, first);
+
+		if (last == std::string::npos)
+		{
+			last = str.size();
+		}
+	}
+
+	return result;
+}
+
+inline double computeInverseErrorFunction(double y, double tolerance, int max_iterations)
+{
+	// Initial guess for x
+	double x = y;
+	
+	// Iteratively improve the estimate
+	for (int i = 0; i < max_iterations; i ++)
+	{
+		// Calculate the error function value and its derivative at the current estimate
+		double erf_x = std::erf(x);
+		double derivative = (2.0 / std::sqrt(PI)) * std::exp(-x * x);
+		
+		// Newton-Raphson step
+		double delta_x = (erf_x - y) / derivative;
+		x -= delta_x;
+		
+		// Check for convergence
+		if(std::abs(delta_x) < tolerance)
+		{
+			break;
+		}
+	}
+	
+	return x;
+}
+
+inline std::vector<std::vector<double>> computeGaussianQuadratureNodeWeight(int degree)
+{
+	// 結果として返すノードと重み
+	std::vector<std::vector<double>> node_weight(degree, std::vector<double>(2));
+
+	// 重みとノードを計算
+	std::vector<double> weights(degree);
+	std::vector<double> nodes(degree);
+
+	for (int i = 0; i < degree; i ++)
+	{
+		// 初期値を計算（近似式を使用してゼロ点付近を見つける）
+		double initial_guess = std::cos((static_cast<double>(i) + 0.75) / (static_cast<double>(degree) + 0.5) * PI);
+
+		// ルジャンドル関数の零点をNewton-Raphson法で計算
+		double legendre_zero = findLegendreZero(degree, initial_guess, 50);
+
+		// 零点が小さい場合は 0 に設定（浮動小数点の誤差を考慮）
+		if (std::abs(legendre_zero) < 1.0e-10)
+		{
+			legendre_zero = 0.0;
+		}
+
+		// 計算結果をノードに格納
+		nodes[i] = legendre_zero;
+
+		// 重みを計算
+		weights[i] = 2.0 * (1.0 - nodes[i] * nodes[i]) / (static_cast<double>(degree) * std::legendre(degree - 1, nodes[i]) * static_cast<double>(degree) * std::legendre(degree - 1, nodes[i]));
+
+		// ノードと重みを結果に格納
+		node_weight[i][0] = nodes[i];
+		node_weight[i][1] = weights[i];
+	}
+
+	return node_weight;
+}
+
+inline double computeGaussianQuadrature(std::vector<std::vector<double>> node_weight, std::vector<std::vector<double>> function_values)
+{
+	double result = 0.0;
+	int number_of_nodes = node_weight.size();
+
+	double min_range = 1.0E300;
+	double max_range = -1.0E300;
+
+	// 区間の範囲を計算
+	for (int i = 0; i < number_of_nodes; i++)
+	{
+		if (function_values[i][0] < min_range)
+		{
+			min_range = function_values[i][0];
+		}
+		if (function_values[i][0] > max_range)
+		{
+			max_range = function_values[i][0];
+		}
+
+		// 重み × 関数値を積分
+		result += node_weight[i][1] * function_values[i][1];
+	}
+
+	result *= (max_range - min_range) * 0.5;
+
+	return result;
+}
+
+inline double findLegendreZero(int degree, double initial_guess, int max_iterations)
+{
+	for (int iteration = 0; iteration < max_iterations; iteration ++)
+	{
+		// ルジャンドル多項式の値
+		double legendre_value = std::legendre(degree, initial_guess);
+
+		// ルジャンドル多項式の導関数（漸化式を利用）
+		double legendre_derivative = static_cast<double>(degree) * (std::legendre(degree - 1, initial_guess) - initial_guess * legendre_value) / (1.0 - initial_guess * initial_guess);
+
+		// Newton-Raphson法で次の推定値を計算
+		double next_guess = initial_guess - legendre_value / legendre_derivative;
+
+		// 収束判定
+		if(std::abs(next_guess - initial_guess) < 1.0e-8)
+		{
+			return next_guess;
+
+			break;
+		}
+
+		// 次の推定値を設定
+		initial_guess = next_guess;
+
+		if (iteration == max_iterations - 1)
+		{
+			// 収束しない場合のエラー処理
+			throw std::runtime_error("Failed to find Legendre zero within maximum iterations.");
+		}
+	}
+
+	return 0.0;
+}
+
+inline double computeTrapezoidalIntegration(const std::vector<std::vector<double>>& f)
+{
+	int n = f.size();
+	/*
+		double result = 0.0;
+		for(int i = 0; i < n - 1; i ++)
+		{
+			result += 0.5 * (f[i][1] + f[i + 1][1]) * (f[i + 1][0] - f[i][0]);
+		}
+	*/
+	double result = (f[0][1] + f[n - 1][1]) * 0.5;
+
+	for(int i = 1; i < n - 1; i ++)
+	{
+		result += f[i][1];
+	}
+
+	result *= f[1][0] - f[0][0];
+
+	return result;
+}
+
+inline double computeSimpsonIntegration(const std::vector<std::vector<double>>& f)
+{
+	int n = f.size();
+
+	if(n % 2 == 0)
+	{
+		std::cout << "ERROR: NUMBER OF DATA SHOULD BE ODD." << std::endl;
+	}
+	
+	double result = 0.0;
+
+	for(int i = 0; i < n; i ++)
+	{
+		if(i == 0 || i == n - 1)
+		{
+			result += f[i][1];
+		}
+		else if(i % 2 == 0)
+		{
+			result += 2.0 * f[i][1];
+		}
+		else if(i % 2 == 1)
+		{
+			result += 4.0 * f[i][1];
+		}
+	}
+
+	result *= (f[1][0] - f[0][0]) / 3.0;
+
+	return result;
+}
+
+inline std::vector<std::vector<double>> computeGaussRadauQuadratureNodeWeight(int n)
+{
+	assert(n >= 2);
+	const int m = n - 1;
+	
+	const double a = 1.0;
+	const double b = 0.0;
+
+	Eigen::MatrixXd J = Eigen::MatrixXd::Zero(m, m);
+
+	for (int k = 0; k < m; ++k)
+	{
+		J(k, k) = (b * b - a * a) / ((2.0 * k + a + b) * (2.0 * k + a + b + 2.0)); 
+
+		if (k < m - 1)
+		{
+			double num = 4.0 * (k + 1.0) * (k + a + 1.0) * (k + b + 1.0) * (k + a + b + 1.0);
+			double den = (2.0 * k + a + b + 1.0) * (2.0 * k + a + b + 3.0) * std::pow(2.0 * k + a + b + 2.0, 2);
+			double e = std::sqrt(num / den);
+
+			J(k, k + 1) = e;
+			J(k + 1, k) = e;
+		}
+	}
+
+	Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> es(J);
+	auto evals = es.eigenvalues();
+
+	std::vector<double> xi(n);
+	
+	for (int i = 0; i < m; ++i)
+	{
+		xi[i] = evals(i);
+	}
+
+	xi[m] = 1.0;
+	
+	std::vector<double> Wi(n);
+	
+	for (int i = 0; i < m; ++i)
+	{
+		double Pnm1 = std::legendre(n - 1, xi[i]); // P_{n-1}(xi)
+		Wi[i] = (1.0 + xi[i]) / (static_cast<double>(n) * static_cast<double>(n) * Pnm1 * Pnm1);
+	}
+	Wi[m] = 2.0 / (static_cast<double>(n) * static_cast<double>(n));
+
+	std::vector<std::vector<double>> out(n, std::vector<double>(2.0));
+	for (int i = 0; i < n; ++i)
+	{
+		double x01 = 0.5 * (xi[i] + 1.0);
+		double w01 = 0.5 * Wi[i];
+		out[i][0] = static_cast<double>(x01);
+		out[i][1] = static_cast<double>(w01);
+	}
+	
+	return out;
+}
+
+inline void normalizeWindowFunction(std::vector<double>& f)
+{
+	double sum = 0.0;
+	for(int i = 0; i < f.size(); i ++)
+	{
+		sum += f[i];
+	}
+
+	for(int i = 0; i < f.size(); i ++)
+	{
+		f[i] /= sum;
+	}
+
+	return;
+}
+
+}

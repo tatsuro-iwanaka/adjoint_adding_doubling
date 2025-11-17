@@ -1,0 +1,1301 @@
+#ifndef __RETRIEVAL_H__
+#define __RETRIEVAL_H__
+
+#include<filesystem>
+#include<iostream>
+#include<sstream>
+#include<chrono>
+#include<vector>
+#include<string>
+#include<cmath>
+#include<fstream>
+#include<iomanip>
+#include<algorithm>
+#include<netcdf>
+#include<omp.h>
+#include<lapacke.h>
+#include<cblas.h>
+
+#include<spherical_grid>
+#include<multivariate_spline>
+#include<akatsuki_uvi>
+
+namespace retrieval
+{
+
+class RadiativeTransferResultInterpolator
+{
+	private:
+		spherical_grid::SphericalGrid _sphere;
+		int _deg_sphere = -99;
+		std::vector<std::vector<double>> _reflectance_unformatted;
+
+	public:
+		multivariate_spline::TriCubicInterpolator interpolator;
+		std::vector<double> incidence_zenith_angle, emission_zenith_angle, emission_azimuth_angle;
+		//std::vector<std::vector<std::vector<double>>> reflectance;
+
+		std::vector<std::vector<double>> window_function;
+
+		double so2, ni;
+		std::string filename_model;
+
+		//double interpolation(double, double, double);
+		void makeInterpolator(void);
+		void importRadiativeTransferResultNetCDF(void);
+		void importInterpolatorNetCDF(std::string);
+		void exportInterpolatorNetCDF(std::string);
+		double interpolation(double, double, double);
+		void clear();
+};
+
+inline void RadiativeTransferResultInterpolator::importRadiativeTransferResultNetCDF(void)
+{
+	//std::cout << "file: " << filename << std::endl;
+
+	netCDF::NcFile inputFile(filename_model, netCDF::NcFile::read);
+
+	//std::cout << "netCDF loaded." << std::endl;
+
+	inputFile.getVar("deg_sphere").getVar(&_deg_sphere);
+	//std::cout << "grid: " << _deg_sphere << std::endl;
+	_sphere.Ntheta = _deg_sphere;
+	_sphere.initializeGrid();
+
+	//inputFile.getVar("wavelength").getVar(&wavelength);
+	//std::cout << wavelength << std::endl;
+
+	//std::cout << "sphere constructed" << std::endl;
+
+	// 次元の読み込み
+	//netCDF::NcDim dim_direction_i = inputFile.getDim("direction_i");
+	//netCDF::NcDim dim_direction_e = inputFile.getDim("direction_e");
+	netCDF::NcDim dim_layer = inputFile.getDim("layer");
+	netCDF::NcDim dim_wavelength = inputFile.getDim("wavelength");
+
+	//int num_direction_i = dim_direction_i.getSize();
+	//int num_direction_e = dim_direction_e.getSize();
+	int num_layer = dim_layer.getSize();
+	int num_wavelength = dim_wavelength.getSize();
+
+	window_function.resize(num_wavelength);
+	
+
+	_reflectance_unformatted.resize(_sphere.num_face, std::vector<double>(_sphere.num_face));
+	// _incidence_zenith_angle_unformatted.resize(sphere.num_face);
+	// _incidence_azimuth_angle_unformatted.resize(sphere.num_face);
+	// _emission_zenith_angle_unformatted.resize(sphere.num_face);
+	// _emission_azimuth_angle_unformatted.resize(sphere.num_face);
+
+	std::vector<double> flat_reflectance(_sphere.num_face * _sphere.num_face);
+	std::vector<double> flat_wavelength(num_wavelength);
+	std::vector<double> flat_window_function(num_wavelength);
+
+	//読み込むべき情報
+	//SO2(70km), ni, wavelength
+	//inputFile.getVar("wavelength").getVar(&wavelength);
+
+	inputFile.getVar("reflectance").getVar(flat_reflectance.data());
+
+	inputFile.getVar("wavelength").getVar(flat_wavelength.data());
+	inputFile.getVar("window_function").getVar(flat_window_function.data());
+
+	for(int i = 0; i < num_wavelength; i ++)
+	{
+		window_function[i] = {flat_wavelength[i], flat_window_function[i]};
+	}
+
+	// inputFile.getVar("theta_i").getVar(_incidence_zenith_angle_unformatted.data());
+	// inputFile.getVar("phi_i").getVar(_incidence_azimuth_angle_unformatted.data());
+	// inputFile.getVar("theta_e").getVar(_emission_zenith_angle_unformatted.data());
+	// inputFile.getVar("phi_e").getVar(_emission_azimuth_angle_unformatted.data());
+
+	for(int ne = 0; ne < _sphere.num_face; ne ++)
+	{
+		for(int ni = 0; ni < _sphere.num_face; ni ++)
+		{
+			int idx = ne * _sphere.num_face + ni;
+
+			_reflectance_unformatted[ne][ni] = flat_reflectance[idx];
+		}
+	}
+
+	std::vector<double> layer(num_layer);
+	inputFile.getVar("altitude").getVar(layer.data());
+
+	int n_species;
+	inputFile.getVar("n_species").getVar(&n_species);
+
+	for(int i = 0; i < n_species; i ++)
+	{
+		netCDF::NcGroup group = inputFile.getGroup("species_" + std::to_string(i + 1));
+
+		std::string species_name;
+		group.getAtt("name").getValues(species_name);
+
+		if(species_name == "SO2")
+		{
+			std::vector<double> mixing_ratio(num_layer);
+			group.getVar("mixing_ratio").getVar(mixing_ratio.data());
+			
+			for(int z = 0; z < num_layer; z ++)
+			{
+				//std::cout << layer[z] << ", " << mixing_ratio[z] << std::endl;
+				if(layer[z] <= 70000.0 && 70000.0 <= layer[z + 1])
+				{
+					double H = -(layer[z + 1]- layer[z]) / (std::log(mixing_ratio[z + 1]) - std::log(mixing_ratio[z]));
+					so2 = mixing_ratio[z] * std::exp(-(70000.0 - layer[z]) / H);
+					break;
+				}
+			}
+		}
+		else if(species_name == "Cloud_mode1")
+		{
+			group.getVar("n_i").getVar(&ni);
+		}
+	}
+
+	return;
+}
+
+inline void RadiativeTransferResultInterpolator::makeInterpolator(void)
+{
+	std::vector<int> n_phi0;
+
+	std::vector<double> incidence_zenith_angle_unformatted;
+	std::vector<double> emission_zenith_angle_unformatted;
+	std::vector<std::vector<double>> emission_azimuth_angle_unformatted;
+	std::vector<std::vector<std::vector<double>>> reflectance_unformatted;
+
+	for(int i = 0; i < _sphere.num_face; i ++)
+	{
+		if(i == 0)
+		{
+			n_phi0.push_back(0);
+			//std::cout << incidence_zenith_angle[i] * 180.0 / M_PI << std::endl;
+		}
+		else if(std::abs(_sphere.face[i - 1].position_polar[0] - _sphere.face[i].position_polar[0]) > 1.0E-5)
+		{
+			n_phi0.push_back(i);
+			//std::cout << incidence_zenith_angle[i - 1] * 180.0 / M_PI << ", " << incidence_zenith_angle[i] * 180.0 / M_PI << std::endl;
+		}
+	}
+
+	for(int ntheta_i = 0; ntheta_i < n_phi0.size(); ntheta_i ++)
+	{
+		incidence_zenith_angle_unformatted.push_back(_sphere.face[n_phi0[ntheta_i]].position_polar[0]);
+		//std::cout << incidence_zenith_angle[n_phi0[ntheta_i]] << std::endl;
+	}
+
+	for(int ntheta_e = 0; ntheta_e < n_phi0.size(); ntheta_e ++)
+	{
+		emission_zenith_angle_unformatted.push_back(_sphere.face[n_phi0[ntheta_e]].position_polar[0]);
+		std::vector<double> phi_e_temp;
+
+		if(ntheta_e == 0)
+		{
+			//std::cout << "NTHETA=0" << std::endl;
+			phi_e_temp = {0.0, M_PI};
+		}
+		else if(ntheta_e != n_phi0.size() - 1)
+		{
+			int n_phi = n_phi0[ntheta_e + 1] - n_phi0[ntheta_e];
+
+			for(int i = n_phi0[ntheta_e]; i <= n_phi0[ntheta_e] + n_phi / 2; i ++)
+			{
+				phi_e_temp.push_back(_sphere.face[i].position_polar[1]);
+			}
+		}
+		else
+		{
+			int n_phi = _sphere.num_face - n_phi0[ntheta_e];
+
+			for(int i = n_phi0[ntheta_e]; i <= n_phi0[ntheta_e] + n_phi / 2; i ++)
+			{
+				phi_e_temp.push_back(_sphere.face[i].position_polar[1]);
+			}
+		}
+
+		emission_azimuth_angle_unformatted.push_back(phi_e_temp);
+
+	// 	std::cout << phi_e_temp[0] * 180.0 / M_PI;
+	// 	for(int i = 1; i < phi_e_temp.size(); i ++)
+	// 	{
+	// 		std::cout << ", " << phi_e_temp[i] * 180.0 / M_PI;
+	// 	}
+	// 	std::cout << std::endl;
+	}
+
+	for(int ntheta_i = 0; ntheta_i < n_phi0.size(); ntheta_i ++)
+	{
+		std::vector<std::vector<double>> r_i_temp;	//r(theta_e, phi_e)
+
+		int ni = n_phi0[ntheta_i];
+
+		if(ntheta_i == 0)
+		{
+			for(int ntheta_e = 0; ntheta_e < n_phi0.size(); ntheta_e ++)
+			{
+				int ne = n_phi0[ntheta_e];
+				r_i_temp.push_back({_reflectance_unformatted[ne][ni], _reflectance_unformatted[ne][ni]});
+			}
+		}
+		else
+		{
+			for(int ntheta_e = 0; ntheta_e < n_phi0.size(); ntheta_e ++)
+			{
+				std::vector<double> r_e_temp;	//r(phi_e)
+
+				if(ntheta_e == 0)
+				{
+					r_e_temp = {_reflectance_unformatted[0][ni], _reflectance_unformatted[0][ni]};
+				}
+				else if(ntheta_e != n_phi0.size() - 1)
+				{
+					int n_phi = n_phi0[ntheta_e + 1] - n_phi0[ntheta_e];
+
+					for(int i = n_phi0[ntheta_e]; i <= n_phi0[ntheta_e] + n_phi / 2; i ++)
+					{
+						int ne = i;
+						r_e_temp.push_back(_reflectance_unformatted[ne][ni]);
+					}
+				}
+				else
+				{
+					int n_phi = _sphere.num_face - n_phi0[ntheta_e];
+					//std::cout << emission_azimuth_angle.size() << ", " << n_phi0[ntheta_e] << std::endl;
+
+					for(int i = n_phi0[ntheta_e]; i <= n_phi0[ntheta_e] + n_phi / 2; i ++)
+					{
+						int ne = i;
+						r_e_temp.push_back(_reflectance_unformatted[ne][ni]);
+					}
+				}
+
+				//std::cout << r_e_temp.size() << std::endl;
+
+				r_i_temp.push_back(r_e_temp);
+			}
+		}
+
+		//std::cout << "ntheta_i = " << ntheta_i << ", ntheta_e: " << r_i_temp.size() << std::endl;
+
+		reflectance_unformatted.push_back(r_i_temp);
+		
+		// std::cout << reflectance[ntheta_i][0].size();
+		// for(int ntheta_e = 1; ntheta_e < reflectance[ntheta_i].size(); ntheta_e ++)
+		// {
+		// 	std::cout << " " << reflectance[ntheta_i][ntheta_e].size();
+		// }
+		// std::cout << std::endl;
+	}
+	
+	incidence_zenith_angle = incidence_zenith_angle_unformatted;
+	emission_zenith_angle = emission_zenith_angle_unformatted;
+	emission_azimuth_angle = emission_azimuth_angle_unformatted[emission_azimuth_angle_unformatted.size() - 1];
+
+	interpolator.x0 = incidence_zenith_angle;
+	interpolator.x1 = emission_zenith_angle;
+	interpolator.x2 = emission_azimuth_angle;
+	interpolator.initialization();
+
+	for(int ni = 0; ni < interpolator.x0.size(); ni ++)
+	{
+		for(int ne = 0; ne < interpolator.x1.size(); ne ++)
+		{
+			//std::cout << ni << ", " << ne;
+			if(ni == 0)
+			{
+				for(int np = 0; np < interpolator.x2.size(); np ++)
+				{
+					interpolator.f[ni][ne][np] = reflectance_unformatted[ni][ne][0];
+				}
+			}
+			else
+			{
+				if(ne == 0)
+				{
+					for(int np = 0; np < interpolator.x2.size(); np ++)
+					{
+						interpolator.f[ni][ne][np] = reflectance_unformatted[ni][ne][0];
+					}
+				}
+				else
+				{
+					multivariate_spline::Spline spl;
+					spl.x = emission_azimuth_angle_unformatted[ne];
+					spl.f = reflectance_unformatted[ni][ne];
+					spl.makeClampedSpline();
+
+					for(int np = 0; np < interpolator.x2.size(); np ++)
+					{
+						interpolator.f[ni][ne][np] = spl.interpolation(emission_azimuth_angle[np]);
+					}
+
+					// if(ni == 4 && ne == 5)
+					// {
+					// 	for(int i = 0; i <= 18000; i ++)
+					// 	{
+					// 		double phi = 180.0 / 18000 * double(i);
+					// 		std::cout << phi << ", " << spl.interpolation(phi / 180.0 * M_PI) << std::endl;
+					// 	}
+					// }
+				}
+			}
+			
+			//std::cout << "done." << std::endl;
+		}
+	}
+
+	interpolator.regular_grid = true;
+	interpolator.spline_type = {multivariate_spline::SPLINE_TYPE::NATURAL, multivariate_spline::SPLINE_TYPE::NATURAL, multivariate_spline::SPLINE_TYPE::CLAMPED};
+	//std::cout << "Computing interpolator..." << std::flush;
+	interpolator.makeInterpolator();
+
+	_reflectance_unformatted.clear();
+
+	return;
+}
+
+inline void RadiativeTransferResultInterpolator::exportInterpolatorNetCDF(std::string filename)
+{
+	netCDF::NcFile outputFile(filename, netCDF::NcFile::replace);
+
+	//netcdfファイルへの書き込み関数
+	//nx0, nx1, nintx0, nintx1, ncoef
+	//x0(nx0), x1(nx1)
+	//a(nintx0, nintx1, ncoef, ncoef)
+
+	// 次元の定義
+	netCDF::NcDim dim_x0 = outputFile.addDim("incidence_zenith_angle", interpolator.x0.size());
+	netCDF::NcDim dim_x1 = outputFile.addDim("emission_zenith_angle", interpolator.x1.size());
+	netCDF::NcDim dim_x2 = outputFile.addDim("emission_azimuth_angle", interpolator.x2.size());
+	netCDF::NcDim dim_x0_int = outputFile.addDim("incidence_zenith_angle_interval", interpolator.x0.size() - 1);
+	netCDF::NcDim dim_x1_int = outputFile.addDim("emission_zenith_angle_interval", interpolator.x1.size() - 1);
+	netCDF::NcDim dim_x2_int = outputFile.addDim("emission_azimuth_angle_interval", interpolator.x2.size() - 1);
+	netCDF::NcDim dim_coef = outputFile.addDim("coefficient", 4);
+
+	// 変数の定義
+	netCDF::NcVar var_so2 = outputFile.addVar("so2", netCDF::ncDouble);
+	var_so2.putAtt("long_name", "SO2 mixing ratio (mol/mol) at 70 km");
+	var_so2.putVar(&so2);
+
+	netCDF::NcVar var_ni = outputFile.addVar("ni", netCDF::ncDouble);
+	var_ni.putAtt("long_name", "Imaginary part of the refractive index, ni, of the cloud particles");
+	var_ni.putVar(&ni);
+
+	netCDF::NcVar var_x0 = outputFile.addVar("incidence_zenith_angle", netCDF::ncDouble, dim_x0);
+	var_x0.setCompression(true, true, 5);
+	var_x0.putAtt("long_name", "incidence zenith angle");
+	var_x0.putVar(interpolator.x0.data());
+	netCDF::NcVar var_x1 = outputFile.addVar("emission_zenith_angle", netCDF::ncDouble, dim_x1);
+	var_x1.setCompression(true, true, 5);
+	var_x1.putAtt("long_name", "emission zenith angle");
+	var_x1.putVar(interpolator.x1.data());
+	netCDF::NcVar var_x2 = outputFile.addVar("emission_azimuth_angle", netCDF::ncDouble, dim_x2);
+	var_x2.setCompression(true, true, 5);
+	var_x2.putAtt("long_name", "emission azimuth angle");
+	var_x2.putVar(interpolator.x2.data());
+
+	netCDF::NcVar var_coef = outputFile.addVar("coefficent", netCDF::ncDouble, {dim_x0_int, dim_x1_int, dim_x2_int, dim_coef, dim_coef, dim_coef});
+	var_coef.setCompression(true, true, 5);
+	var_coef.putAtt("long_name", "spline coefficient");
+	var_coef.putAtt("discription", "a[i][j][k] * x0^i * x1^j * x2^k");
+	std::vector<double> flat_coef;
+	for(int nx = 0; nx < interpolator.x0.size() - 1; nx ++)
+	{
+		for(int ny = 0; ny < interpolator.x1.size() - 1; ny ++)
+		{
+			for(int nz = 0; nz < interpolator.x2.size() - 1; nz ++)
+			{
+				for(int i = 0; i < 4; i ++)
+				{
+					for(int j = 0; j < 4; j ++)
+					{
+						for(int k = 0; k < 4; k ++)
+						{
+							flat_coef.push_back(interpolator.interval[nx][ny][nz].a[i][j][k]);
+						}
+					}
+				}
+			}
+		}
+	}
+	var_coef.putVar(flat_coef.data());
+
+	return;
+}
+
+inline void RadiativeTransferResultInterpolator::importInterpolatorNetCDF(std::string filename)
+{
+	netCDF::NcFile inputFile(filename, netCDF::NcFile::read);
+
+	// 次元の読み込み
+	netCDF::NcDim dim_x0 = inputFile.getDim("incidence_zenith_angle");
+	netCDF::NcDim dim_x1 = inputFile.getDim("emission_zenith_angle");
+	netCDF::NcDim dim_x2 = inputFile.getDim("emission_azimuth_angle");
+	netCDF::NcDim dim_x0_int = inputFile.getDim("incidence_zenith_angle_interval");
+	netCDF::NcDim dim_x1_int = inputFile.getDim("emission_zenith_angle_interval");
+	netCDF::NcDim dim_x2_int = inputFile.getDim("emission_azimuth_angle_interval");
+	netCDF::NcDim dim_coef = inputFile.getDim("coefficient");
+
+	incidence_zenith_angle.resize(dim_x0.getSize());
+	emission_zenith_angle.resize(dim_x1.getSize());
+	emission_azimuth_angle.resize(dim_x2.getSize());
+
+	inputFile.getVar("so2").getVar(&so2);
+	inputFile.getVar("ni").getVar(&ni);
+
+	inputFile.getVar("incidence_zenith_angle").getVar(incidence_zenith_angle.data());
+	inputFile.getVar("emission_zenith_angle").getVar(emission_zenith_angle.data());
+	inputFile.getVar("emission_azimuth_angle").getVar(emission_azimuth_angle.data());
+
+	interpolator.x0 = incidence_zenith_angle;
+	interpolator.x1 = emission_zenith_angle;
+	interpolator.x2 = emission_azimuth_angle;
+	// interpolator.initialization();
+	// interpolator.regular_grid = true;
+	// interpolator.spline_type = {multivariate_spline::SPLINE_TYPE::NATURAL, multivariate_spline::SPLINE_TYPE::NATURAL, multivariate_spline::SPLINE_TYPE::CLAMPED};
+
+	int num_coef = dim_coef.getSize();
+	int num_x0 = dim_x0.getSize();
+	int num_x1 = dim_x1.getSize();
+	int num_x2 = dim_x2.getSize();
+	int num_x0_int = dim_x0_int.getSize();
+	int num_x1_int = dim_x1_int.getSize();
+	int num_x2_int = dim_x2_int.getSize();
+
+	interpolator.interval.resize(num_x0_int, std::vector<std::vector<multivariate_spline::TriCubicInterpolator::TriCubicSpline>>(num_x1_int, std::vector<multivariate_spline::TriCubicInterpolator::TriCubicSpline>(num_x2_int)));
+	interpolator.f.resize(num_x0, std::vector<std::vector<double>>(num_x1, std::vector<double>(num_x2)));
+
+	std::vector<double> coef_flat(num_coef * num_coef * num_coef * num_x0_int * num_x1_int * num_x2_int);
+	inputFile.getVar("coefficent").getVar(coef_flat.data());
+
+	#pragma omp parallel for
+	for(int nx0 = 0; nx0 < num_x0_int; nx0 ++)
+	{
+		for(int nx1 = 0; nx1 < num_x1_int; nx1 ++)
+		{
+			for(int nx2 = 0; nx2 < num_x2_int; nx2 ++)
+			{
+				interpolator.interval[nx0][nx1][nx2].a.resize(num_coef, std::vector<std::vector<double>>(num_coef, std::vector<double>(num_coef)));
+			}
+		}
+	}
+
+	for(int coef2 = 0; coef2 < num_coef; coef2 ++)
+	{
+		for(int coef1 = 0; coef1 < num_coef; coef1 ++)
+		{
+			for(int coef0 = 0; coef0 < num_coef; coef0 ++)
+			{	
+				#pragma omp parallel for
+				for(int nx2 = 0; nx2 < num_x2_int; nx2 ++)
+				{
+					for(int nx1 = 0; nx1 < num_x1_int; nx1 ++)
+					{
+						for(int nx0 = 0; nx0 < num_x0_int; nx0 ++)
+						{
+							int idx = nx0 * (num_x1_int * num_x2_int * num_coef * num_coef * num_coef) + nx1 * (num_x2_int * num_coef * num_coef * num_coef) + nx2 * (num_coef * num_coef * num_coef) + coef0 * (num_coef * num_coef) + coef1 * (num_coef) + coef2;
+							interpolator.interval[nx0][nx1][nx2].a[coef0][coef1][coef2] = coef_flat[idx];
+						}
+					}
+				}
+			}
+		}
+	}
+
+	return;
+}
+
+inline double RadiativeTransferResultInterpolator::interpolation(double incidence_zenith_angle0, double emission_zenith_angle0, double emission_azimuth_angle0)
+{
+	return interpolator.interpolation(incidence_zenith_angle0, emission_zenith_angle0, emission_azimuth_angle0);
+}
+
+inline void RadiativeTransferResultInterpolator::clear(void)
+{
+	interpolator.clear();
+	incidence_zenith_angle.clear();
+	emission_zenith_angle.clear();
+	emission_azimuth_angle.clear();
+	return;
+}
+
+class RadiativeTransferResults
+{
+	private:
+		double _computeNewtonRaphson(double, double, double, double, double, double, double);
+		double _solveCubicBisection(double, double, double, double, double, double, double, double, int);
+		std::vector<double> _solveCubicReal(double, double, double, double, double, double);
+
+		int _num_so2;
+		int _num_ni;
+
+		std::vector<double> _inangle_list;
+		std::vector<double> _emangle_list;
+		std::vector<double> _phi_list;
+
+		std::vector<double> _findUniqueValues(std::vector<double>, double);
+
+		std::vector<RadiativeTransferResultInterpolator> _reflectance_model_283;
+		std::vector<RadiativeTransferResultInterpolator> _reflectance_model_365;
+
+	public:
+		std::vector<std::string> filelist_283, filelist_365;
+
+		std::vector<double> so2_list, ni283_list, ni365_list;
+
+		std::vector<std::vector<RadiativeTransferResultInterpolator>> reflectance_model_283;
+		std::vector<std::vector<RadiativeTransferResultInterpolator>> reflectance_model_365;
+		
+		RadiativeTransferResults(void);
+		void initialization(void);
+		void makeInterpolator(void);
+		std::vector<double> retrieve(double, double, double, double, double, akatsuki_uvi::RetrievalStatus&, double, int);
+};
+
+inline std::vector<double> RadiativeTransferResults::_findUniqueValues(std::vector<double> data, double relative_epsilon)
+{
+	std::vector<double> unique_values = {data[0]};
+
+	for (int i = 1; i < data.size(); i ++)
+	{
+		double epsilon = relative_epsilon * std::abs(data[i]);
+		bool is_found = false;
+
+		for(int j = 0; j < unique_values.size(); j ++)
+		{
+			if(std::abs(unique_values[j] - data[i]) < epsilon)
+			{
+				is_found = true;
+				break;
+			}
+		}
+
+		if(is_found == false)
+		{
+			unique_values.push_back(data[i]);
+		}
+	}
+
+	std::sort(unique_values.begin(), unique_values.end());
+
+	for(int i = 0; i < unique_values.size(); i ++)
+	{
+		//std::cout << unique_values[i] << std::endl;
+	}
+
+	return unique_values;
+}
+
+inline RadiativeTransferResults::RadiativeTransferResults(void)
+{
+	return;
+}
+
+inline double RadiativeTransferResults::_solveCubicBisection(double a, double b, double c, double d, double left, double right, double tol_abs = 1e-12, double tol_rel = 1e-8, int max_iter = 1000)
+{
+	// 3次方程式 f(x)=0
+	auto f = [&](double x){return a * x * x * x + b * x * x + c * x + d;};
+
+	double f_left = f(left);
+	double f_right = f(right);
+
+	// 両端で符号が逆になっていないときは例外（ここでは -99 を返す）
+	if (f_left * f_right > 0.0)
+	{
+		return -99.0;
+	}
+
+	double mid = 0.0;
+
+	for (int i = 0; i < max_iter; ++i)
+	{
+		mid    = 0.5 * (left + right);
+		double f_mid = f(mid);
+		double width = right - left;
+
+		// --- 収束判定 ---
+		// (1) 関数値誤差：絶対 or 相対
+		bool ok_f_abs = std::fabs(f_mid) < tol_abs;
+		bool ok_f_rel = std::fabs(f_mid) < tol_rel * std::max(std::fabs(f_left), std::fabs(f_right));
+
+		// (2) 変数（x）誤差：絶対 or 相対
+		bool ok_x_abs = width < tol_abs;
+		bool ok_x_rel = width < tol_rel * std::fabs(mid);
+
+		if ((ok_f_abs || ok_f_rel) && (ok_x_abs || ok_x_rel))
+		{
+			return mid;
+		}
+
+		// 二分ステップ
+		if (f_left * f_mid > 0.0)
+		{
+			left   = mid;
+			f_left = f_mid;
+		}
+		else
+		{
+			right   = mid;
+			f_right = f_mid;
+		}
+	}
+
+	// max_iter 以内に満たなかったら最後の mid を返す
+	return mid;
+}
+
+inline std::vector<double> RadiativeTransferResults::_solveCubicReal(double a, double b, double c, double d, double xmin = std::numeric_limits<double>::lowest(), double xmax = std::numeric_limits<double>::max())
+{
+	if (std::fabs(a) < std::numeric_limits<double>::epsilon())
+	{
+		// Degenerate or not cubic
+		return {};
+	}
+	// Normalize coefficients: x^3 + A*x^2 + B*x + C = 0
+	double inva = 1.0 / a;
+	double A = b * inva;
+	double B = c * inva;
+	double Cc = d * inva;
+
+	// Depressed cubic substitution x = y - A/3
+	double offset = A / 3.0;
+
+	// Compute depressed coefficients
+	double p = B - A*A/3.0;
+	double q = 2.0*A*A*A/27.0 - A*B/3.0 + Cc;
+
+	// Discriminant
+	double D = q*q/4.0 + p*p*p/27.0;
+
+	std::vector<double> roots;
+	const double pi = M_PI;
+	const double tol = 1e-12;
+
+	if (D >= 0.0)
+	{
+		// One real root
+		double sqrtD = std::sqrt(D);
+		double u = std::cbrt(-q/2.0 + sqrtD);
+		double v = std::cbrt(-q/2.0 - sqrtD);
+		double y = u + v;
+		double x = y - offset;
+
+		if (x >= xmin && x <= xmax)
+		{
+			roots.push_back(x);
+		}
+	}
+	else
+	{
+		// Three real roots
+		double rho = std::sqrt(-p/3.0);
+		double theta = std::acos(-q/(2.0 * rho*rho*rho));
+
+		for (int k = 0; k < 3; ++k)
+		{
+			double angle = (theta + 2.0*pi*k) / 3.0;
+			double y = 2.0 * rho * std::cos(angle);
+			double x = y - offset;
+			if (x >= xmin && x <= xmax)
+			{
+				roots.push_back(x);
+			}
+		}
+	}
+	// Sort and deduplicate
+	std::sort(roots.begin(), roots.end());
+	roots.erase(std::unique(roots.begin(), roots.end(), [&](double x, double y){return std::fabs(x - y) < tol;}), roots.end());
+
+	return roots;
+}
+
+inline double RadiativeTransferResults::_computeNewtonRaphson(double a, double b, double c, double d, double y, double x0, double x1)
+{
+	double eps = (x1 - x0) * 1.0E-3;
+
+	d = d - y;
+	double x;
+	
+	if(c > 0.0)
+	{
+		double f = d;
+		double fp = c;
+
+		double h = f / fp;
+
+		x = x0;
+
+		while (std::abs(h) >= eps)
+		{
+			f = a * std::pow(x - x0, 3.0) + b * std::pow(x - x0, 2.0) + c * (x - x0) + d;
+			fp = 3.0 * a * std::pow(x - x0, 2.0) + 2.0 * b * (x - x0) + c;
+
+			h = f / fp;
+
+			x = x - h;
+		}
+	}
+	else if(c < 0.0)
+	{
+		double f = a * std::pow(x1 - x0, 3.0) + b * std::pow(x1 - x0, 2.0) + c * (x1 - x0) + d;
+		double fp = 3.0 * a * std::pow(x1 - x0, 2.0) + 2.0 * b * (x1 - x0) + c;
+
+		double h = f / fp;
+
+		x = x1;
+
+		while (std::abs(h) >= eps)
+		{
+			f = a * std::pow(x - x0, 3.0) + b * std::pow(x - x0, 2.0) + c * (x - x0) + d;
+			fp = 3.0 * a * std::pow(x - x0, 2.0) + 2.0 * b * (x - x0) + c;
+
+			h = f / fp;
+
+			x = x - h;
+		}
+	}
+	else
+	{
+		x = -99.0;
+	}
+	
+	return x;
+}
+
+inline void RadiativeTransferResults::initialization(void)
+{
+	double relative_epsilon = 1.0E-3;
+
+	std::vector<double> so2_list_temp, ni283_list_temp, ni365_list_temp;
+
+	//_reflectance_model_283.resize(filelist_283.size());
+	//_reflectance_model_365.resize(filelist_365.size());
+
+	for(int i = 0; i < filelist_283.size(); i ++)
+	{
+		std::cout << filelist_283[i] << std::endl;
+		double so2, ni;
+		netCDF::NcFile inputFile(filelist_283[i], netCDF::NcFile::read);
+		inputFile.getVar("so2").getVar(&so2);
+		inputFile.getVar("ni").getVar(&ni);
+		so2_list_temp.push_back(so2);
+		ni283_list_temp.push_back(ni);
+		//_reflectance_model_283[i].importInterpolatorNetCDF(filelist_283[i]);
+	}
+
+	for(int i = 0; i < filelist_365.size(); i ++)
+	{
+		std::cout << filelist_365[i] << std::endl;
+		double ni;
+		netCDF::NcFile inputFile(filelist_365[i], netCDF::NcFile::read);
+		inputFile.getVar("ni").getVar(&ni);
+		ni365_list_temp.push_back(ni);
+	}
+
+	// for(int i = 0; i < _reflectance_model_283.size(); i ++)
+	// {
+	// 	so2_list_temp.push_back(_reflectance_model_283[i].so2);
+	// 	ni283_list_temp.push_back(_reflectance_model_283[i].ni);
+	// }
+
+	// for(int i = 0; i < _reflectance_model_365.size(); i ++)
+	// {
+	// 	ni365_list_temp.push_back(_reflectance_model_365[i].ni);
+	// }
+
+	so2_list = _findUniqueValues(so2_list_temp, relative_epsilon);
+	ni283_list = _findUniqueValues(ni283_list_temp, relative_epsilon);
+	ni365_list = _findUniqueValues(ni365_list_temp, relative_epsilon);
+
+	std::cout << "so2_list: " << so2_list[0];
+	for(int i = 1; i < so2_list.size(); i ++)
+	{
+		std::cout << ", " << so2_list[i];
+	}
+	std::cout << std::endl;
+	std::cout << "ni283_list: " << ni283_list[0];
+	for(int i = 1; i < ni283_list.size(); i ++)
+	{
+		std::cout << ", " << ni283_list[i];
+	}
+	std::cout << std::endl;
+	std::cout << "ni365_list: " << ni365_list[0];
+	for(int i = 1; i < ni365_list.size(); i ++)
+	{
+		std::cout << ", " << ni365_list[i];
+	}
+	std::cout << std::endl;
+
+	std::vector<std::vector<int>> fn_283(so2_list.size(), std::vector<int>(ni283_list.size()));
+	std::vector<std::vector<int>> fn_365(so2_list.size(), std::vector<int>(ni365_list.size()));
+
+	reflectance_model_283.resize(so2_list.size(), std::vector<RadiativeTransferResultInterpolator>(ni283_list.size()));
+	reflectance_model_365.resize(so2_list.size(), std::vector<RadiativeTransferResultInterpolator>(ni365_list.size()));
+
+	for(int k = 0; k < filelist_283.size(); k ++)
+	{
+		RadiativeTransferResultInterpolator temp;
+		temp.importInterpolatorNetCDF(filelist_283[k]);
+
+		bool is_found = false;
+
+		for(int i = 0; i < so2_list.size(); i ++)
+		{
+			double so2_eps = relative_epsilon * std::abs(so2_list[i]);
+
+			for(int j = 0; j < ni283_list.size(); j ++)
+			{
+				double ni283_eps = relative_epsilon * std::abs(ni283_list[j]);
+
+				if(std::abs(temp.so2 - so2_list[i]) < so2_eps && std::abs(temp.ni - ni283_list[j]) < ni283_eps)
+				{
+					reflectance_model_283[i][j] = temp;
+					std::cout << filelist_283[k] << ", " << temp.so2 << ", " << temp.ni << std::endl;
+					is_found = true;
+				}
+
+				if(is_found)
+				{
+					break;
+				}
+			}
+
+			if(is_found)
+			{
+				break;
+			}
+		}
+	}
+
+	for(int k = 0; k < filelist_365.size(); k ++)
+	{
+		RadiativeTransferResultInterpolator temp;
+		temp.importInterpolatorNetCDF(filelist_365[k]);
+
+		bool is_found = false;
+
+		for(int i = 0; i < so2_list.size(); i ++)
+		{
+			double so2_eps = relative_epsilon * std::abs(so2_list[i]);
+
+			for(int j = 0; j < ni365_list.size(); j ++)
+			{
+				double ni365_eps = relative_epsilon * std::abs(ni365_list[j]);
+
+				if(std::abs(temp.so2 - so2_list[i]) < so2_eps && std::abs(temp.ni - ni365_list[j]) < ni365_eps)
+				{
+					reflectance_model_365[i][j] = temp;
+					std::cout << filelist_365[k] << ", " << temp.so2 << ", " << temp.ni << std::endl;
+					is_found = true;
+				}
+
+				if(is_found)
+				{
+					break;
+				}
+			}
+
+			if(is_found)
+			{
+				break;
+			}
+		}
+	}
+
+	// std::vector<RadiativeTransferResultInterpolator>().swap(_reflectance_model_283);
+	// std::vector<RadiativeTransferResultInterpolator>().swap(_reflectance_model_365);
+
+	// for(int i = 0; i < so2_list.size(); i ++)
+	// {
+	// 	for(int j = 0; j < ni283_list.size(); j ++)
+	// 	{
+	// 		reflectance_model_283[i][j].importInterpolatorNetCDF(filelist_283[fn_283[i][j]]);
+	// 	}
+	// 	for(int j = 0; j < ni365_list.size(); j ++)
+	// 	{
+	// 		reflectance_model_365[i][j].importInterpolatorNetCDF(filelist_365[fn_365[i][j]]);
+	// 	}
+	// }
+
+	return;
+}
+
+inline void RadiativeTransferResults::makeInterpolator(void)
+{
+	double relative_epsilon = 1.0E-3;
+
+	std::vector<double> so2_list_temp, ni283_list_temp, ni365_list_temp;
+
+	_reflectance_model_283.resize(filelist_283.size());
+	_reflectance_model_365.resize(filelist_365.size());
+
+	for(int i = 0; i < filelist_283.size(); i ++)
+	{
+		std::cout << filelist_283[i] << std::endl;
+		_reflectance_model_283[i].filename_model = filelist_283[i];
+		_reflectance_model_283[i].importRadiativeTransferResultNetCDF();
+		_reflectance_model_283[i].makeInterpolator();
+	}
+
+	for(int i = 0; i < filelist_365.size(); i ++)
+	{
+		std::cout << filelist_365[i] << std::endl;
+		_reflectance_model_365[i].filename_model = filelist_365[i];
+		_reflectance_model_365[i].importRadiativeTransferResultNetCDF();
+		_reflectance_model_365[i].makeInterpolator();
+	}
+
+	for(int i = 0; i < _reflectance_model_283.size(); i ++)
+	{
+		so2_list_temp.push_back(_reflectance_model_283[i].so2);
+		ni283_list_temp.push_back(_reflectance_model_283[i].ni);
+	}
+
+	for(int i = 0; i < _reflectance_model_365.size(); i ++)
+	{
+		ni365_list_temp.push_back(_reflectance_model_365[i].ni);
+	}
+
+	so2_list = _findUniqueValues(so2_list_temp, relative_epsilon);
+	ni283_list = _findUniqueValues(ni283_list_temp, relative_epsilon);
+	ni365_list = _findUniqueValues(ni365_list_temp, relative_epsilon);
+
+	std::cout << "so2_list: " << so2_list[0];
+	for(int i = 1; i < so2_list.size(); i ++)
+	{
+		std::cout << ", " << so2_list[i];
+	}
+	std::cout << std::endl;
+	std::cout << "ni283_list: " << ni283_list[0];
+	for(int i = 1; i < ni283_list.size(); i ++)
+	{
+		std::cout << ", " << ni283_list[i];
+	}
+	std::cout << std::endl;
+	std::cout << "ni365_list: " << ni365_list[0];
+	for(int i = 1; i < ni365_list.size(); i ++)
+	{
+		std::cout << ", " << ni365_list[i];
+	}
+	std::cout << std::endl;
+
+	reflectance_model_283.resize(so2_list.size(), std::vector<RadiativeTransferResultInterpolator>(ni283_list.size()));
+	reflectance_model_365.resize(so2_list.size(), std::vector<RadiativeTransferResultInterpolator>(ni365_list.size()));
+
+	for(int i = 0; i < so2_list.size(); i ++)
+	{
+		double so2_eps = relative_epsilon * std::abs(so2_list[i]);
+
+		for(int j = 0; j < ni283_list.size(); j ++)
+		{
+			double ni283_eps = relative_epsilon * std::abs(ni283_list[j]);
+
+			for(int k = 0; k < _reflectance_model_283.size(); k ++)
+			{
+				//std::cout << so2_list[i] << ", " << ni283_list[j] << ", " << _rt_results_283[k].so2 << ", " << _rt_results_283[k].ni << ", " << _rt_results_283[k].so2 - so2_list[i] << ", " << so2_eps << ", " << _rt_results_283[k].ni - ni283_list[j] << ", " << ni283_eps << std::endl;
+
+				if(std::abs(_reflectance_model_283[k].so2 - so2_list[i]) < so2_eps && std::abs(_reflectance_model_283[k].ni - ni283_list[j]) < ni283_eps)
+				{
+					reflectance_model_283[i][j] = _reflectance_model_283[k];
+					break;
+				}
+			}
+		}
+
+		for(int j = 0; j < ni365_list.size(); j ++)
+		{
+			double ni365_eps = relative_epsilon * std::abs(ni365_list[j]);
+
+			for(int k = 0; k < _reflectance_model_365.size(); k ++)
+			{
+				//std::cout << so2_list[i] << ", " << ni283_list[j] << ", " << _rt_results_365[k].so2 << ", " << _rt_results_365[k].ni << ", " << _rt_results_365[k].so2 - so2_list[i] << ", " << so2_eps << ", " << _rt_results_365[k].ni - ni283_list[j] << ", " << ni283_eps << std::endl;
+
+				if(std::abs(_reflectance_model_365[k].so2 - so2_list[i]) < so2_eps && std::abs(_reflectance_model_365[k].ni - ni365_list[j]) < ni365_eps)
+				{
+					reflectance_model_365[i][j] = _reflectance_model_365[k];
+					break;
+				}
+			}
+		}
+	}
+
+	_reflectance_model_283.clear();
+	_reflectance_model_365.clear();
+
+	return;
+}
+
+inline std::vector<double> RadiativeTransferResults::retrieve(double r283, double r365, double incidence_zenith_angle0, double emission_zenith_angle0, double emission_azimuth_angle0, akatsuki_uvi::RetrievalStatus& status, double t = 2.77, int max_outer_iter = 100)
+{
+	// 角度をラジアンに変換
+	incidence_zenith_angle0 *= M_PI / 180.0;
+	emission_zenith_angle0 *= M_PI / 180.0;
+	emission_azimuth_angle0 *= M_PI / 180.0;
+
+	// 初期値: so2 VMR, log(ni365)
+	std::vector<double> result = {1.0e-7, std::log(1.0e-3)};
+	std::vector<double> result_prev = result;
+
+	// const double t = 2.77;
+	const double relative_eps_so2 = 1.0e-3;
+	const double relative_eps_ni365 = 1.0e-3;
+
+	// スプライン補間準備
+	std::vector<multivariate_spline::Spline> interpolator_283_ni(so2_list.size());
+	std::vector<multivariate_spline::Spline> interpolator_365_so2(ni365_list.size());
+
+	for (int i = 0; i < (int)so2_list.size(); ++i)
+	{
+		interpolator_283_ni[i].x = ni283_list;
+		interpolator_283_ni[i].f.resize(ni283_list.size());
+
+		for (int j = 0; j < (int)ni283_list.size(); ++j)
+		{
+			interpolator_283_ni[i].x[j] = std::log(ni283_list[j]);
+			interpolator_283_ni[i].f[j] = reflectance_model_283[i][j].interpolation(incidence_zenith_angle0, emission_zenith_angle0, emission_azimuth_angle0);
+		}
+
+		interpolator_283_ni[i].makeNaturalSpline();
+	}
+
+	for (int i = 0; i < (int)ni365_list.size(); ++i)
+	{
+		interpolator_365_so2[i].x = so2_list;
+		interpolator_365_so2[i].f.resize(so2_list.size());
+
+		for (int j = 0; j < (int)so2_list.size(); ++j)
+		{
+			interpolator_365_so2[i].f[j] = reflectance_model_365[j][i].interpolation(incidence_zenith_angle0, emission_zenith_angle0, emission_azimuth_angle0);
+		}
+
+		interpolator_365_so2[i].makeNaturalSpline();
+	}
+
+	double relaxation = 0.5;
+	const double min_relax = 0.1;
+	const double max_relax = 1.0;
+	const double delta_up = 1.05;
+	const double delta_down = 0.7;
+
+	double prev_norm = std::numeric_limits<double>::infinity();
+
+	for (int iter = 0; iter < max_outer_iter; ++iter)
+	{
+		result_prev = result;
+
+		// Ni365 推定
+		multivariate_spline::Spline sp1;
+		sp1.x = ni365_list;
+		sp1.f.resize(ni365_list.size());
+
+		for (int i = 0; i < (int)ni365_list.size(); ++i)
+		{
+			sp1.x[i] = std::log(ni365_list[i]);
+			sp1.f[i] = interpolator_365_so2[i].interpolation(result_prev[0]);
+		}
+
+		sp1.makeNaturalSpline();
+		// 範囲外チェック
+		if (sp1.f[0] < r365)
+		{
+			status = akatsuki_uvi::RetrievalStatus::ValueAboveUpperBound;
+			// std::cout << "The observed reflectance (" << r365 << ") is above the simulated range (" << sp1.f.back() << ", " << sp1.f[0] << ")." << std::endl;
+			return std::vector<double>{-99.0, -99.0};
+		}
+		else if(sp1.f.back() >= r365)
+		{
+			status = akatsuki_uvi::RetrievalStatus::ValueBelowLowerBound;
+			// std::cout << "The observed reflectance (" << r365 << ") is below the simulated range (" << sp1.f.back() << ", " << sp1.f[0] << ")." << std::endl;
+			return std::vector<double>{-99.0, -99.0};
+		}
+		// 二分法で解を求めて result[1]
+		for (int i = 0; i + 1 < (int)sp1.x.size(); ++i)
+		{
+			if (sp1.f[i] >= r365 && r365 > sp1.f[i+1])
+			{
+				double x0 = sp1.x[i];
+				double x1 = sp1.x[i+1];
+				// auto sol = _solveCubicReal(sp1.a[i], sp1.b[i], sp1.c[i], sp1.d[i] - r365, 0.0, x1 - x0);
+
+				// if(sol.size() == 0)
+				// {
+				// 	status = akatsuki_uvi::RetrievalStatus::ConvergenceFailure;
+				// 	std::cout << "Error: No root found within the specified interval." << std::endl;
+				// 	return std::vector<double>{-99.0, -99.0};
+				// }
+				// else if(sol.size() > 1)
+				// {
+				// 	status = akatsuki_uvi::RetrievalStatus::ConvergenceFailure;
+				// 	std::cout << "Error: multiple roots found within the specified interval." << std::endl;
+				// 	return std::vector<double>{-99.0, -99.0};
+				// }
+
+				result[1] = _solveCubicBisection(sp1.a[i], sp1.b[i], sp1.c[i], sp1.d[i] - r365, 0.0, x1 - x0) + x0;
+				// result[1] = sol[0] + x0;
+				break;
+			}
+		}
+
+		// SO2 推定
+		multivariate_spline::Spline sp2;
+		sp2.x = so2_list;
+		sp2.f.resize(so2_list.size());
+		double ni_val = std::exp(result[1]);
+		for (int i = 0; i < (int)so2_list.size(); ++i)
+		{
+			sp2.f[i] = interpolator_283_ni[i].interpolation(std::log(ni_val / t));
+		}
+
+		sp2.makeNaturalSpline();
+
+		if (sp2.f[0] < r283)
+		{
+			status = akatsuki_uvi::RetrievalStatus::ValueAboveUpperBound;
+			// std::cout << "The observed reflectance (" << r283 << ") is above the simulated range (" << sp2.f.back() << ", " << sp2.f[0] << ")." << std::endl;
+			return std::vector<double>{-99.0, -99.0};
+		}
+		else if(sp2.f.back() >= r283)
+		{
+			status = akatsuki_uvi::RetrievalStatus::ValueBelowLowerBound;
+			// std::cout << "The observed reflectance (" << r283 << ") is below the simulated range (" << sp2.f.back() << ", " << sp2.f[0] << ")." << std::endl;
+			return std::vector<double>{-99.0, -99.0};
+		}
+
+		for (int i = 0; i + 1 < (int)sp2.x.size(); ++i)
+		{
+			if (sp2.f[i] >= r283 && r283 > sp2.f[i+1])
+			{
+				double x0 = sp2.x[i];
+				double x1 = sp2.x[i+1];
+				// auto sol = _solveCubicReal(sp2.a[i], sp2.b[i], sp2.c[i], sp2.d[i] - r283, 0.0, x1 - x0);
+				
+				// if(sol.size() == 0)
+				// {
+				// 	status = akatsuki_uvi::RetrievalStatus::ConvergenceFailure;
+				// 	std::cout << "Error: No root found within the specified interval." << std::endl;
+				// 	return std::vector<double>{-99.0, -99.0};
+				// }
+				// else if(sol.size() > 1)
+				// {
+				// 	status = akatsuki_uvi::RetrievalStatus::ConvergenceFailure;
+				// 	std::cout << "Error: multiple roots found within the specified interval." << std::endl;
+				// 	return std::vector<double>{-99.0, -99.0};
+				// }
+				result[0] = _solveCubicBisection(sp2.a[i], sp2.b[i], sp2.c[i], sp2.d[i] - r283, 0.0, x1 - x0) + x0;
+				// result[0] = sol[0] + x0;
+				break;
+			}
+		}
+
+		// 緩和更新
+		for (int k = 0; k < 2; ++k)
+		{
+			result[k] = result_prev[k] + relaxation * (result[k] - result_prev[k]);
+		}
+
+		// 変化量ノルム
+		double curr_norm = std::hypot(result[0] - result_prev[0], result[1] - result_prev[1]);
+		// 適応的に relaxation 調整
+		if (curr_norm < prev_norm)
+		{
+			relaxation = std::min(max_relax, relaxation * delta_up);
+		}
+		else
+		{
+			relaxation = std::max(min_relax, relaxation * delta_down);
+		}
+		prev_norm = curr_norm;
+
+		// 収束判定
+		double eps_so2 = relative_eps_so2 * std::abs(result[0]);
+		double eps_ni365 = relative_eps_ni365 * std::abs(result[1]);
+		if (std::fabs(result[0] - result_prev[0]) < eps_so2 && std::fabs(result[1] - result_prev[1]) < eps_ni365)
+		{
+			status = akatsuki_uvi::RetrievalStatus::Success;
+			result[1] = std::exp(result[1]);
+			return result;
+		}
+	}
+
+	// 未収束
+	status = akatsuki_uvi::RetrievalStatus::ConvergenceFailure;
+
+	return std::vector<double>{-99.0, -99.0};
+}
+
+inline void retrieve(RadiativeTransferResults& r_model, akatsuki_uvi::AkatsukiUVIL3bRetrievedData& retrieved_data)
+{
+	for(int nx = 0; nx < retrieved_data.num_x; nx ++)
+	{
+		for(int ny = 0; ny < retrieved_data.num_y; ny ++)
+		{
+			if(retrieved_data.is_sensitivity_test)
+			{
+				for(int nt = 0; nt < retrieved_data.ni_ratio_st.size(); nt ++)
+				{
+					// std::cout << nx << ", " << ny << ", " << nt << std::endl;
+					if(retrieved_data.availability_st[nx][ny][nt] == false)
+					{
+						retrieved_data.availability_st[nx][ny][nt] = false;
+						retrieved_data.retrieval_status_st[nx][ny][nt] = akatsuki_uvi::RetrievalStatus::NoObservation;
+						retrieved_data.so2_st[nx][ny][nt] = -99.0;
+						retrieved_data.ni_st[nx][ny][nt] = -99.0;
+					}
+					else if(std::abs(retrieved_data.latitude[ny]) <= retrieved_data.lat_limit && retrieved_data.incidence_zenith_angle[nx][ny] <= 80.0 && retrieved_data.emission_zenith_angle[nx][ny] <= 80.0 && retrieved_data.phase_angle[nx][ny] <= 160.0)
+					{
+						auto result = r_model.retrieve(retrieved_data.reflectance_283[nx][ny], retrieved_data.reflectance_365[nx][ny], retrieved_data.incidence_zenith_angle[nx][ny], retrieved_data.emission_zenith_angle[nx][ny], retrieved_data.emission_azimuth_angle[nx][ny], retrieved_data.retrieval_status_st[nx][ny][nt], retrieved_data.ni_ratio_st[nt]);
+						if(result[0] < 0.0 || result[1] < 0.0)
+						{
+							retrieved_data.availability_st[nx][ny][nt] = false;
+						}
+						retrieved_data.so2_st[nx][ny][nt] = result[0] * 1.0E9;
+						retrieved_data.ni_st[nx][ny][nt] = result[1];
+					}
+					else
+					{
+						retrieved_data.availability_st[nx][ny][nt] = false;
+						retrieved_data.retrieval_status_st[nx][ny][nt] = akatsuki_uvi::RetrievalStatus::OutOfGeometry;
+						retrieved_data.so2_st[nx][ny][nt] = -99.0;
+						retrieved_data.ni_st[nx][ny][nt] = -99.0;
+					}
+				}
+			}
+			else
+			{
+				if(retrieved_data.availability[nx][ny] == false)
+				{
+					retrieved_data.availability[nx][ny] = false;
+					retrieved_data.retrieval_status[nx][ny] = akatsuki_uvi::RetrievalStatus::NoObservation;
+					retrieved_data.so2[nx][ny] = -99.0;
+					retrieved_data.ni[nx][ny] = -99.0;
+				}
+				else if(std::abs(retrieved_data.latitude[ny]) <= retrieved_data.lat_limit && retrieved_data.incidence_zenith_angle[nx][ny] <= 80.0 && retrieved_data.emission_zenith_angle[nx][ny] <= 80.0 && retrieved_data.phase_angle[nx][ny] <= 160.0)
+				{
+					auto result = r_model.retrieve(retrieved_data.reflectance_283[nx][ny], retrieved_data.reflectance_365[nx][ny], retrieved_data.incidence_zenith_angle[nx][ny], retrieved_data.emission_zenith_angle[nx][ny], retrieved_data.emission_azimuth_angle[nx][ny], retrieved_data.retrieval_status[nx][ny], retrieved_data.ni_ratio);
+					if(result[0] < 0.0 || result[1] < 0.0)
+					{
+						retrieved_data.availability[nx][ny] = false;
+					}
+					retrieved_data.so2[nx][ny] = result[0] * 1.0E9;
+					retrieved_data.ni[nx][ny] = result[1];
+				}
+				else
+				{
+					retrieved_data.availability[nx][ny] = false;
+					retrieved_data.retrieval_status[nx][ny] = akatsuki_uvi::RetrievalStatus::OutOfGeometry;
+					retrieved_data.so2[nx][ny] = -99.0;
+					retrieved_data.ni[nx][ny] = -99.0;
+				}
+			}
+		}
+	}
+
+	return;
+}
+
+}
+
+#endif

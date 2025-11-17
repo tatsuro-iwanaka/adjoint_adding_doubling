@@ -1,0 +1,3153 @@
+#pragma once
+
+#include<fstream>
+#include<iostream>
+#include<map>
+#include<sstream>
+#include<string>
+#include<vector>
+#include<algorithm>
+
+#include"types"
+#include"constants"
+#include"utilities"
+#include"hitran"
+
+namespace radiative_transfer
+{
+/*
+inline InCellSuperSamplingType Configuration::_toInCellSuperSamplingType(std::string s)
+{
+	std::string s_u = toUpper(s);
+	if (s_u == "ENABLE") return InCellSuperSamplingType::Enable;
+	if (s_u == "DISABLE") return InCellSuperSamplingType::Disable;
+	throw std::runtime_error("Unknown InCellSuperSamplingType: " + s);
+}
+
+inline DeltaApproximationType Configuration::_toDeltaApproximationType(std::string s)
+{
+	std::string s_u = toUpper(s);
+	if (s_u == "NONE" || s_u == "DISABLE") return DeltaApproximationType::Disable;
+	if (s_u == "D_M1" || s_u == "DM1" || s_u == "DELTA_M_1" || s_u == "DELTA_M1") return DeltaApproximationType::d_m1;
+	if (s_u == "D_M2" || s_u == "DM2" || s_u == "DELTA_M_2" || s_u == "DELTA_M2") return DeltaApproximationType::d_m2;
+	if (s_u == "FWHM") return DeltaApproximationType::FWHM;
+	if (s_u == "CUMULATIVE") return DeltaApproximationType::Cumulative;
+	throw std::runtime_error("Unknown DeltaApproximationType: " + s);
+}
+
+inline VerticalTemperatureProfile Configuration::_toVerticalTemperatureProfile(std::string s)
+{
+	std::string s_u = toUpper(s);
+	if (s_u == "VIRA_EQUATOR") return VerticalTemperatureProfile::VIRA_EQUATOR;
+	if (s_u == "VIRA_45") return VerticalTemperatureProfile::VIRA_45;
+	if (s_u == "VIRA_60") return VerticalTemperatureProfile::VIRA_60;
+	if (s_u == "TABLE") return VerticalTemperatureProfile::Table;
+	if (s_u == "EXTERNAL") return VerticalTemperatureProfile::External;
+	throw std::runtime_error("Unknown VerticalTemperatureProfile: " + s);
+}
+
+inline VerticalPressureProfile Configuration::_toVerticalPressureProfile(std::string s)
+{
+	std::string s_u = toUpper(s);
+	if (s_u == "VIRA_EQUATOR") return VerticalPressureProfile::VIRA_EQUATOR;
+	if (s_u == "VIRA_45") return VerticalPressureProfile::VIRA_45;
+	if (s_u == "VIRA_60") return VerticalPressureProfile::VIRA_60;
+	if (s_u == "TABLE") return VerticalPressureProfile::Table;
+	if (s_u == "HYDROSTATIC") return VerticalPressureProfile::Hydrostatic;
+	if (s_u == "EXTERNAL") return VerticalPressureProfile::External;
+	throw std::runtime_error("Unknown VerticalPressureProfile: " + s);
+}
+
+inline VerticalNumberDensityProfile Configuration::_toVerticalNumberDensityProfile(std::string s)
+{
+	std::string s_u = toUpper(s);
+	if (s_u == "VIRA_EQUATOR") return VerticalNumberDensityProfile::VIRA_EQUATOR;
+	if (s_u == "VIRA_45") return VerticalNumberDensityProfile::VIRA_45;
+	if (s_u == "VIRA_60") return VerticalNumberDensityProfile::VIRA_60;
+	if (s_u == "TABLE") return VerticalNumberDensityProfile::Table;
+	if (s_u == "IDEALGAS" || s_u == "IDEAL_GAS" || s_u == "IDEALGASLAW" || s_u == "IDEAL_GAS_LAW") return VerticalNumberDensityProfile::IdealGas;
+	if (s_u == "EXTERNAL") return VerticalNumberDensityProfile::External;
+	throw std::runtime_error("Unknown VerticalNumberDensityProfile: " + s);
+}
+
+inline VerticalProfileInterpolation Configuration::_toVerticalProfileInterpolation(std::string s)
+{
+	std::string s_u = toUpper(s);
+	if (s_u == "EXPONENTIAL") return VerticalProfileInterpolation::Exponential;
+	if (s_u == "LINEAR") return VerticalProfileInterpolation::Linear;
+	throw std::runtime_error("Unknown VerticalProfileInterpolation: " + s);
+}
+
+inline VerticalProfileInterpolation Configuration::_toSpeciesVerticalProfileInterpolation(std::string s)
+{
+	std::string s_u = toUpper(s);
+	if (s_u == "EXPONENTIAL") return VerticalProfileInterpolation::Exponential;
+	if (s_u == "LINEAR") return VerticalProfileInterpolation::Linear;
+	throw std::runtime_error("Unknown VerticalProfileInterpolation: " + s);
+}
+
+inline SurfaceType Configuration::_toSurfaceType(std::string s)
+{
+	std::string s_u = toUpper(s);
+	if (s_u == "NO_SURFACE" || s_u == "NONE") return SurfaceType::NoSurface;
+	if (s_u == "LAMBERT" || s_u == "LAMBERTIAN") return SurfaceType::Lambert;
+	throw std::runtime_error("Unknown SurfaceType: " + s);
+}
+
+inline ScatterType Configuration::_toScatterType(std::string s)
+{
+	std::string s_u = toUpper(s);
+	if (s_u == "RAYLEIGH") return ScatterType::Rayleigh;
+	if (s_u == "MIE") return ScatterType::Mie;
+	if (s_u == "HENYEY_GREENSTEIN" || s_u == "HENYEYGREENSTEIN") return ScatterType::HenyeyGreenstein;
+	if (s_u == "ISOTROPIC") return ScatterType::Isotropic;
+	throw std::runtime_error("Unknown ScatterType: " + s);
+}
+
+inline SpeciesState Configuration::_toSpeciesState(std::string s)
+{
+	std::string s_u = toUpper(s);
+	if (s_u == "MOLECULE") return SpeciesState::Molecule;
+	if (s_u == "AEROSOL") return SpeciesState::Aerosol;
+	throw std::runtime_error("Unknown SpeciesState: " + s);
+}
+
+inline SpeciesType Configuration::_toSpeciesType(std::string s)
+{
+	std::string s_u = toUpper(s);
+	if (s_u == "ABSORBER") return SpeciesType::Absorber;
+	if (s_u == "SCATTERER") return SpeciesType::Scatterer;
+	if (s_u == "EXTINCTION" || s_u == "BOTH") return SpeciesType::Extinction;
+	throw std::runtime_error("Unknown SpeciesType: " + s);
+}
+
+inline ParticleSizeDistribution Configuration::_toParticleSizeDistribution(std::string s)
+{
+	std::string s_u = toUpper(s);
+	if (s_u == "DELTA") return ParticleSizeDistribution::Delta;
+	if (s_u == "GAUSSIAN") return ParticleSizeDistribution::Gaussian;
+	if (s_u == "RECTANGULAR") return ParticleSizeDistribution::Rectangular;
+	if (s_u == "LOG_NORMAL" || s_u == "LOGNORMAL") return ParticleSizeDistribution::LogNormal;
+	if (s_u == "EXTERNAL") return ParticleSizeDistribution::External;
+	throw std::runtime_error("Unknown ParticleSizeDistribution: " + s);
+}
+
+inline CrossSectionType Configuration::_toCrossSectionType(std::string s)
+{
+	std::string s_u = toUpper(s);
+	if (s_u == "EXTERNAL") return CrossSectionType::External;
+	if (s_u == "CONSTANT") return CrossSectionType::Constant;
+	if (s_u == "HITRAN") return CrossSectionType::HITRAN;
+	throw std::runtime_error("Unknown CrossSectionType: " + s);
+}
+
+inline RefractiveIndexType Configuration::_toRefractiveIndexType(std::string s)
+{
+	std::string s_u = toUpper(s);
+	if (s_u == "CONSTANT") return RefractiveIndexType::Constant;
+	if (s_u == "EXTERNAL") return RefractiveIndexType::External;
+	if (s_u == "VERTICAL_PROFILE") return RefractiveIndexType::VerticalProfile;
+	throw std::runtime_error("Unknown RefractiveIndexType: " + s);
+}
+
+inline WavelengthType Configuration::_toWavelengthType(std::string s)
+{
+	std::string s_u = toUpper(s);
+	if (s_u == "MONOCHROME") return WavelengthType::Monochrome;
+	if (s_u == "TABLE") return WavelengthType::Table;
+	if (s_u == "SPECTRUM") return WavelengthType::Spectrum;
+	if (s_u == "BANDPASS") return WavelengthType::Bandpass;
+	throw std::runtime_error("Unknown WavelengthType: " + s);
+}
+
+inline WavenumberType Configuration::_toWavenumberType(std::string s)
+{
+	std::string s_u = toUpper(s);
+	if (s_u == "MONOCHROME") return WavenumberType::Monochrome;
+	if (s_u == "TABLE") return WavenumberType::Table;
+	if (s_u == "SPECTRUM") return WavenumberType::Spectrum;
+	if (s_u == "BANDPASS") return WavenumberType::Bandpass;
+	throw std::runtime_error("Unknown WavenumberType: " + s);
+}
+
+inline InstrumentFunction Configuration::_toInstrumentFunction(std::string s)
+{
+	std::string s_u = toUpper(s);
+	if (s_u == "GAUSS" || s_u == "GAUSSIAN") return InstrumentFunction::Gauss;
+	if (s_u == "RECTANGLE" || s_u == "RECTANGULAR") return InstrumentFunction::Rectangle;
+	throw std::runtime_error("Unknown InstrumentFunction: " + s);
+}
+
+inline GridType Configuration::_toGridType(std::string s)
+{
+	std::string s_u = toUpper(s);
+	if (s_u == "GAUSSRADAU" || s_u == "GAUSS_RADAU") return GridType::GaussRadau;
+	if (s_u == "REGULAR") return GridType::Regular;
+	throw std::runtime_error("Unknown GridType: " + s);
+}
+
+inline WindowFunctionType Configuration::_toWindowFunctionType(std::string s)
+{
+	std::string s_u = toUpper(s);
+	if (s_u == "GAUSS" || s_u == "GAUSSIAN") return WindowFunctionType::Gauss;
+	if (s_u == "RECTANGULAR" || s_u == "RECTANGLE") return WindowFunctionType::Rectangle;
+	if (s_u == "TABLE") return WindowFunctionType::Table;
+	if (s_u == "EXTERNAL") return WindowFunctionType::External;
+	throw std::runtime_error("Unknown WindowFunctionType: " + s);
+}
+
+inline std::map<std::string, std::string> Configuration::_importYaml(std::string filename)
+{
+	std::ifstream ifs(filename);
+	if (!ifs) throw std::runtime_error("Cannot open " + filename);
+
+	auto trim = [](std::string s) -> std::string
+	{
+		const auto ws = " \t\r\n";
+		auto b = s.find_first_not_of(ws);
+
+		if (b == std::string::npos)
+		{
+			return "";
+		}
+
+		auto e = s.find_last_not_of(ws);
+
+		return s.substr(b, e - b + 1);
+	};
+
+	// splitFlow ラムダ（深さ depth によってカンマを分割）
+	auto splitFlow = [&trim](std::string s) -> std::vector<std::string>
+	{
+		std::vector<std::string> elems;
+		std::string cur;
+		int depth = 0;
+		
+		for (size_t i = 0; i < s.size(); ++i)
+		{
+			char c = s[i];
+			if(c == '[')
+			{
+				depth++;
+				cur += c;
+			}
+			else if(c == ']')
+			{
+				depth--;
+				cur += c;
+			}
+			else if(c == ',' && depth == 0)
+			{
+				elems.push_back(trim(cur));
+				cur.clear();
+			}
+			else
+			{
+				cur += c;
+			}
+		}
+
+		if (!cur.empty()) elems.push_back(trim(cur));
+
+		return elems;
+	};
+
+	constexpr int INDENT = 2;
+	int prev_depth = 0, line_no = 0;
+	std::vector<std::string> stack;
+	std::map<std::string,int> seqCount;
+	std::map<std::string,std::string> kv;
+
+	std::string line;
+	while (std::getline(ifs, line))
+	{
+		++line_no;
+		// コメント削除
+		auto ph = line.find('#');
+		std::string raw = (ph == std::string::npos ? line : line.substr(0,ph));
+		if (trim(raw).empty()) continue;
+
+		// インデント数カウント
+		int nsp = 0;
+		while (nsp < (int)raw.size() && raw[nsp]==' ') ++nsp;
+		if (nsp % INDENT != 0)
+			throw std::runtime_error("Indent error at line " + std::to_string(line_no));
+		int depth = nsp / INDENT;
+		if (depth > prev_depth + 1)
+			throw std::runtime_error("Nesting error at line " + std::to_string(line_no));
+		prev_depth = depth;
+
+		// 本文
+		std::string body = trim(raw.substr(nsp));
+
+		// ブロックシーケンス（- item）優先処理
+		if (!body.empty() && body[0]=='-')
+		{
+			if (stack.empty())
+			{
+				throw std::runtime_error("Sequence item without parent at line " + std::to_string(line_no));
+			}
+		
+			// prefix を組み立て（例: "species.2.vertical_profile.table"）
+			std::string prefix = stack[0];
+			for (int i = 1; i < (int)stack.size(); ++i)
+			{
+				prefix += "." + stack[i];
+			}
+		
+			// "- " のあと、raw に "[1.0, 2e-13]" を取得
+			std::string raw = trim(body.substr(1));
+			int row = seqCount[prefix]++;
+		
+			// もし flow‐sequence なら "[" と "]" を外して splitFlow で分割
+			if (raw.size() >= 2 && raw.front() == '[' && raw.back() == ']')
+			{
+				auto cols = splitFlow(raw.substr(1, raw.size()-2));
+				for (size_t col = 0; col < cols.size(); ++col)
+				{
+					// species.2.vertical_profile.table.0.0 = "1.0"
+					// species.2.vertical_profile.table.0.1 = "2.7576e-13"
+					kv[prefix + "." 
+					   + std::to_string(row) + "." 
+					   + std::to_string(col)] = cols[col];
+				}
+			}
+			else
+			{
+				// 通常の単一要素シーケンスはそのまま
+				kv[prefix + "." + std::to_string(row)] = raw;
+			}
+			continue;
+		}
+
+		// key: ... 解析
+		auto pc = body.find(':');
+		if (pc == std::string::npos)
+			throw std::runtime_error("Syntax error at line " + std::to_string(line_no));
+		std::string key = trim(body.substr(0,pc));
+		std::string val = trim(body.substr(pc+1));
+
+		if (val.empty())
+		{
+			// ネスト開始行
+			if ((int)stack.size() > depth) stack.resize(depth);
+			if ((int)stack.size() == depth) stack.push_back(key);
+			else                         stack[depth] = key;
+		}
+		else
+		{
+			// 値付き行
+			// クオート除去
+			if ((val.front()=='"'&&val.back()=='"')||(val.front()=='\''&&val.back()=='\''))
+				val = val.substr(1,val.size()-2);
+
+			// フルパスキー
+			std::string full = (depth==0 ? key : stack[0]);
+			for (int i=1; i<depth; ++i) full += "." + stack[i];
+			if (depth>0) full += "." + key;
+
+			// フローシーケンスかどうか
+			if (val.size()>=2 && val.front()=='[' && val.back()==']')
+			{
+				// 内部を切り出して、深さ0 のカンマで分割
+				std::string inside = val.substr(1,val.size()-2);
+				auto items = splitFlow(inside);
+
+				for (size_t j=0; j<items.size(); ++j)
+				{
+					kv[full + "." + std::to_string(j)] = items[j];
+				}
+			}
+			else 
+			{
+				// 通常のスカラー値
+				kv[full] = val;
+			}
+		}
+	}
+
+	return kv;
+}
+
+inline void Configuration::importConfiguration(std::string filename)
+{
+	auto kv = _importYaml(filename);
+
+	_loadSimulation(kv);
+	_loadSurface(kv);
+	_loadAtmosphere(kv);
+
+	return;
+}
+
+inline std::string Configuration::_getRequiredString(std::map<std::string, std::string> kv, std::string key)
+{
+	auto it = kv.find(key);
+
+	if (it == kv.end())
+	{
+		throw std::runtime_error("Missing key: " + key);
+	}
+
+	return it -> second;
+}
+
+inline int Configuration::_getRequiredInt(std::map<std::string, std::string> kv, std::string key)
+{
+	auto it = kv.find(key);
+
+	if (it == kv.end())
+	{
+		throw std::runtime_error("Missing key: " + key);
+	}
+
+	return std::stoi(it -> second);
+}
+
+inline double Configuration::_getRequiredDouble(std::map<std::string, std::string> kv, std::string key)
+{
+	auto it = kv.find(key);
+
+	if (it == kv.end())
+	{
+		throw std::runtime_error("Missing key: " + key);
+	}
+
+	return std::stod(it -> second);
+}
+
+inline bool Configuration::_getRequiredBool(std::map<std::string,std::string> kv, std::string key)
+{
+	auto it = kv.find(key);
+
+	if (it == kv.end())
+	{
+		throw std::runtime_error("Missing key: " + key);
+	}
+
+	std::string s = toLower(it->second);
+
+	if (s == "true"  || s == "yes" || s == "on")  return true;
+	if (s == "false" || s == "no"  || s == "off") return false;
+
+	// ここまで来たら値は存在するが真偽値として解釈不能
+	throw std::runtime_error("Invalid boolean value for key '" + key + "': '" + it->second + "'");
+}
+
+inline std::string Configuration::_getOptionalString(std::map<std::string,std::string> kv, std::string key, std::string def)
+{
+	auto it = kv.find(key);
+
+	return (it == kv.end() ? def : it->second);
+}
+
+inline int Configuration::_getOptionalInt(std::map<std::string,std::string> kv, std::string key, int def)
+{
+	auto it = kv.find(key);
+
+	return (it == kv.end() ? def : std::stoi(it->second));
+}
+
+inline double Configuration::_getOptionalDouble(std::map<std::string,std::string> kv, std::string key, double def)
+{
+	auto it = kv.find(key);
+
+	return (it == kv.end() ? def : std::stod(it->second));
+}
+
+inline bool Configuration::_getOptionalBool(std::map<std::string,std::string> kv, std::string key, bool def)
+{
+	auto it = kv.find(key);
+
+	if (it == kv.end())
+	{
+		return def;
+	}
+
+	std::string s = toLower(it->second);
+
+	if (s == "true"  || s == "yes" || s == "on")  return true;
+	if (s == "false" || s == "no"  || s == "off") return false;
+
+	// ここまで来たら値は存在するが真偽値として解釈不能
+	throw std::runtime_error("Invalid boolean value for key '" + key + "': '" + it->second + "'");
+}
+
+inline void Configuration::_loadSimulation(std::map<std::string,std::string> kv)
+{
+	std::string prefix = "simulation.";
+
+	simulation_name = _getOptionalString(kv, prefix + "name", "untitled");
+	n_parallel = _getOptionalInt(kv, prefix + "n_parallel", 1);
+	directory_name = _getOptionalString(kv, prefix + "directory", "./");
+	if(directory_name[directory_name.size() - 1] != '/')
+	{
+		directory_name.push_back('/');
+	}
+	logfile_name = directory_name + "log/" + _getOptionalString(kv, prefix + "logfile", "log_" + simulation_name + ".txt");
+	result_name = directory_name + "result/" + _getOptionalString(kv, prefix + "result", simulation_name + ".nc");
+	// spectrum = _toSpectrum(_getRequired(kv, prefix + "spectrum"));
+	n_scattering_angle = _getOptionalInt(kv, prefix + "n_scattering_angle", n_scattering_angle);
+	
+	is_wavenumber = _hasKey(kv, prefix + "wavenumber.type");
+	is_instrument = _hasKey(kv, prefix + "wavenumber.instrument.type");
+
+	if(is_wavenumber == true)
+	{
+		wavenumber_type = _toWavenumberType(_getRequiredString(kv, prefix + "wavenumber.type"));
+		if(wavenumber_type == WavenumberType::Monochrome)
+		{
+			if(is_instrument == true)
+			{
+				throw std::runtime_error("Instrument setup is not supported for monochrome calculations.");
+			}
+			else
+			{
+				wavenumber = _getRequiredDouble(kv, prefix + "wavenumber.value") * scaleUnit(_getOptionalString(kv, prefix + "wavenumber.unit", "m-1"), "m-1");
+				wavenumber_list = {wavenumber};
+			}
+		}
+		else if(wavenumber_type == WavenumberType::Table)
+		{
+			if(is_instrument == false)
+			{
+				int n_lambda = _countArrayEntries(kv, prefix + "wavenumber.tics");
+				//std::cout << n_ztics << std::endl;
+				for(int i = 0; i < n_lambda; i ++)
+				{
+					wavenumber_list.push_back(_getRequiredDouble(kv, prefix + "wavenumber.tics." + std::to_string(i)) * scaleUnit(_getOptionalString(kv, prefix + "wavenumber.unit", "m-1"), "m-1"));
+				}
+			}
+			else
+			{
+				throw std::runtime_error("Instrument setup is not supported with wavenumber tables.");
+			}
+		}
+		else if(wavenumber_type == WavenumberType::Spectrum)
+		{
+			wavenumber_min = _getRequiredDouble(kv, prefix + "wavenumber.min") * scaleUnit(_getOptionalString(kv, prefix + "wavenumber.unit", "m-1"), "m-1");
+			wavenumber_max = _getRequiredDouble(kv, prefix + "wavenumber.max") * scaleUnit(_getOptionalString(kv, prefix + "wavenumber.unit", "m-1"), "m-1");
+
+			if(wavenumber_min >= wavenumber_max)
+			{
+				throw std::runtime_error("wavenumber.min must be < wavenumber.max");
+			}
+
+			if(is_instrument == false)
+			{
+				wavenumber_step = _getOptionalDouble(kv, prefix + "wavenumber.increment", std::numeric_limits<double>::quiet_NaN()) * scaleUnit(_getOptionalString(kv, prefix + "wavenumber.unit", "m-1"), "m-1");
+				n_wavenumber = _getOptionalInt(kv, prefix + "wavenumber.count", -1);
+
+				if(std::isnan(wavenumber_step) && n_wavenumber == -1)
+				{
+					throw std::runtime_error("Specify exactly one of wavenumber.increment or wavenumber.count.");
+				}
+				else if(!std::isnan(wavenumber_step) && n_wavenumber != -1)
+				{
+					throw std::runtime_error("Specify only one of wavenumber.increment or wavenumber.count, not both.");
+				}
+				else if(!std::isnan(wavenumber_step))
+				{
+					double span = wavenumber_max - wavenumber_min;
+					double ratio = span / wavenumber_step;
+
+					long intervals = static_cast<long>(std::llround(ratio));
+					if (intervals < 1)
+					{
+						intervals = 1;
+					}
+
+					n_wavenumber = static_cast<int>(intervals) + 1;      // 点の個数
+					wavenumber_step = span / static_cast<double>(intervals); // 端点一致に調整
+
+					for(int i = 0; i < n_wavenumber; i ++)
+					{
+						wavenumber_list.push_back(wavenumber_min + double(i) * wavenumber_step);
+					}
+				}
+				else
+				{
+					if(n_wavenumber < 2)
+					{
+						throw std::runtime_error("wavenumber.count must be at least two.");
+					}
+					else
+					{
+						wavenumber_step = (wavenumber_max - wavenumber_min) / double(n_wavenumber - 1);
+
+						for(int i = 0; i < n_wavenumber; i ++)
+						{
+							wavenumber_list.push_back(wavenumber_min + double(i) * wavenumber_step);
+						}
+					}
+				}
+			}
+			else
+			{
+				n_sample = _getOptionalInt(kv, prefix + "wavenumber.instrument.n_sample", 10);
+				wavenumber_min_result = wavenumber_min;
+				wavenumber_max_result = wavenumber_max;
+				// std::cout << "intrument" << std::endl;
+				is_instrument = true;
+				instrument_function_type = _toInstrumentFunction(_getRequiredString(kv, prefix + "wavenumber.instrument.type"));
+
+				if(instrument_function_type == InstrumentFunction::Gauss)
+				{
+					instrument_function_width = _getRequiredDouble(kv, prefix + "wavenumber.instrument.FWHM") * scaleUnit(_getOptionalString(kv, prefix + "wavenumber.unit", "m-1"), "m-1") / (2.0 * std::sqrt(2.0 * std::log(2.0)));
+
+					wavenumber_min -= 6.0 * instrument_function_width;
+					wavenumber_max += 6.0 * instrument_function_width;
+				}
+				else if(instrument_function_type == InstrumentFunction::Rectangle)
+				{
+					instrument_function_width = _getRequiredDouble(kv, prefix + "wavenumber.instrument.width") * scaleUnit(_getOptionalString(kv, prefix + "wavenumber.unit", "m-1"), "m-1");
+
+					wavenumber_min -= 0.6 * instrument_function_width;
+					wavenumber_max += 0.6 * instrument_function_width;
+				}
+
+				wavenumber_step = instrument_function_width / double(n_sample);
+
+				double span = wavenumber_max - wavenumber_min;
+				double ratio = span / wavenumber_step;
+
+				long intervals = static_cast<long>(std::llround(ratio));
+				if (intervals < 1)
+				{
+					intervals = 1;
+				}
+
+				n_wavenumber = static_cast<int>(intervals) + 1;      // 点の個数
+				wavenumber_step = span / static_cast<double>(intervals); // 端点一致に調整
+
+				for(int i = 0; i < n_wavenumber; i ++)
+				{
+					wavenumber_list.push_back(wavenumber_min + double(i) * wavenumber_step);
+				}
+			}
+		}
+		else if(wavenumber_type == WavenumberType::Bandpass)
+		{
+			window_function_type = _toWindowFunctionType(_getRequiredString(kv, prefix + "wavenumber.instrument.type"));
+			if(window_function_type == WindowFunctionType::Gauss)
+			{
+				double center = _getRequiredDouble(kv, prefix + "wavenumber.instrument.center") * scaleUnit(_getRequiredString(kv, prefix + "wavenumber.unit"), "m-1");
+				double stdev = _getRequiredDouble(kv, prefix + "wavenumber.instrument.FWHM") * scaleUnit(_getRequiredString(kv, prefix + "wavenumber.unit"), "m-1") / (2.0 * std::sqrt(2.0 * std::log(2.0)));
+				n_sample = _getOptionalInt(kv, prefix + "wavenumber.instrument.n_sample", 10);
+				if(n_sample < 5)
+				{
+					n_sample = 5;
+				}
+				wavenumber_list.resize(n_sample);
+				window_function.resize(n_sample);
+				n_wavenumber = n_sample;
+				wavenumber_min = center - stdev * 5.0;
+				wavenumber_max = center + stdev * 5.0;
+				double d_wn = (wavenumber_max - wavenumber_min) / double(n_sample - 1);
+
+				for(int i = 0; i < n_sample; i ++)
+				{
+					wavenumber_list[i] = wavenumber_min + double(i) * d_wn;
+					window_function[i] = 1.0 / std::sqrt(2.0 * PI * stdev * stdev) * std::exp(-(wavenumber_list[i] - center) * (wavenumber_list[i] - center) / (2.0 * stdev * stdev));
+				}
+
+				normalizeWindowFunction(window_function);
+			}
+			else if(window_function_type == WindowFunctionType::Rectangle)
+			{
+				double center = _getRequiredDouble(kv, prefix + "wavenumber.instrument.center") * scaleUnit(_getRequiredString(kv, prefix + "wavenumber.unit"), "m-1");
+				double width = _getRequiredDouble(kv, prefix + "wavenumber.instrument.width") * scaleUnit(_getRequiredString(kv, prefix + "wavenumber.unit"), "m-1");
+				n_sample = _getOptionalInt(kv, prefix + "wavenumber.instrument.n_sample", 10);
+				if(n_sample < 5)
+				{
+					n_sample = 5;
+				}
+				wavenumber_list.resize(n_sample);
+				wavenumber_min = center - width * 0.5;
+				wavenumber_max = center + width * 0.5;
+				double d_wn = (wavenumber_max - wavenumber_min) / double(n_sample - 1);
+
+				for(int i = 0; i < n_sample; i ++)
+				{
+					wavenumber_list[i] = wavenumber_min + double(i) * d_wn;
+					window_function[i] = 1.0;
+				}
+
+				normalizeWindowFunction(window_function);
+			}
+			else if(window_function_type == WindowFunctionType::External)
+			{
+				filename_window_function = _getRequiredString(kv, prefix + "wavenumber.instrument.file");
+				auto wf = _importWindowFunction(filename_window_function, _getRequiredString(kv, prefix + "wavelength.instrument.unit"));
+
+				n_sample = _getOptionalInt(kv, prefix + "wavenumber.instrument.n_sample", 10);
+				if(n_sample < 5)
+				{
+					n_sample = 5;
+				}
+				wavenumber_list.resize(n_sample);
+				window_function.resize(n_sample);
+				wavenumber_min = wf[0][0];
+				wavenumber_max = wf[wf.size() - 1][0];
+				double d_wn = (wavenumber_max - wavenumber_min) / double(n_sample - 1);
+
+				for(int i = 0; i < n_sample; i ++)
+				{
+					wavenumber_list[i] = wavenumber_min + double(i) * d_wn;
+					for(int j = 0; j < wf.size() - 1; j ++)
+					{
+						if(wf[j][0] <= wavenumber_list[i] && wavenumber_list[i] <= wf[j + 1][0])
+						{
+							double r = (wavenumber_list[i] - wf[j][0]) / (wf[j + 1][0] - wf[j][0]);
+							window_function[i] = wf[j][1] + r * (wf[j + 1][1] - wf[j][1]);
+							break;
+						}
+					}
+				}
+
+				normalizeWindowFunction(window_function);
+			}
+			else if(window_function_type == WindowFunctionType::Table)
+			{
+				throw std::runtime_error("Table for window function is currently not supported.");
+			}
+		}
+	}
+	else
+	{
+		if(is_instrument)
+		{
+			throw std::runtime_error("Instrumental simulation is not support for wavelength grid.");
+		}
+
+		wavelength_type = _toWavelengthType(_getRequiredString(kv, prefix + "wavelength.type"));
+		if(wavelength_type == WavelengthType::Monochrome)
+		{
+			wavelength = _getRequiredDouble(kv, prefix + "wavelength.value") * scaleUnit(_getOptionalString(kv, prefix + "wavelength.unit", "m"), "m");
+			wavelength_list = {wavelength};
+		}
+		else if(wavelength_type == WavelengthType::Table)
+		{		
+			int n_lambda = _countArrayEntries(kv, prefix + "wavelength.tics");
+			//std::cout << n_ztics << std::endl;
+			for(int i = 0; i < n_lambda; i ++)
+			{
+				wavelength_list.push_back(_getRequiredDouble(kv, prefix + "wavelength.tics." + std::to_string(i)) * scaleUnit(_getOptionalString(kv, prefix + "wavelength.unit", "m"), "m"));
+			}
+		}
+		else if(wavelength_type == WavelengthType::Spectrum)
+		{
+			wavelength_min = _getRequiredDouble(kv, prefix + "wavelength.min") * scaleUnit(_getOptionalString(kv, prefix + "wavelength.unit", "m"), "m");
+			wavelength_max = _getRequiredDouble(kv, prefix + "wavelength.max") * scaleUnit(_getOptionalString(kv, prefix + "wavelength.unit", "m"), "m");
+
+			if(wavelength_min >= wavelength_max)
+			{
+				throw std::runtime_error("wavelength.min must be < wavelength.max");
+			}
+
+			wavelength_step = _getOptionalDouble(kv, prefix + "wavelength.increment", std::numeric_limits<double>::quiet_NaN()) * scaleUnit(_getOptionalString(kv, prefix + "wavelength.unit", "m"), "m");
+			n_wavelength = _getOptionalInt(kv, prefix + "wavelength.count", -1);
+
+			if(std::isnan(wavelength_step) && n_wavelength == -1)
+			{
+				throw std::runtime_error("Specify exactly one of wavelength.increment or wavelength.count.");
+			}
+			else if(!std::isnan(wavelength_step) && n_wavelength != -1)
+			{
+				throw std::runtime_error("Specify only one of wavelength.increment or wavelength.count, not both.");
+			}
+			else if(!std::isnan(wavelength_step))
+			{
+				double span = wavelength_max - wavelength_min;
+				double ratio = span / wavelength_step;
+
+				long intervals = static_cast<long>(std::llround(ratio));
+				if (intervals < 1)
+				{
+					intervals = 1;
+				}
+
+				n_wavelength = static_cast<int>(intervals) + 1;      // 点の個数
+				wavelength_step = span / static_cast<double>(intervals); // 端点一致に調整
+
+				for(int i = 0; i < n_wavelength; i ++)
+				{
+					wavelength_list.push_back(wavelength_min + double(i) * wavelength_step);
+				}
+			}
+			else
+			{
+				if(n_wavelength < 2)
+				{
+					throw std::runtime_error("wavelength.count must be at least two.");
+				}
+				else
+				{
+					wavelength_step = (wavelength_max - wavelength_min) / double(n_wavelength - 1);
+
+					for(int i = 0; i < n_wavelength; i ++)
+					{
+						wavelength_list.push_back(wavelength_min + double(i) * wavelength_step);
+					}
+				}
+			}
+		}
+		else if(wavelength_type == WavelengthType::Bandpass)
+		{
+			window_function_type = _toWindowFunctionType(_getRequiredString(kv, prefix + "wavelength.instrument.type"));
+			if(window_function_type == WindowFunctionType::Gauss)
+			{
+				double center = _getRequiredDouble(kv, prefix + "wavelength.instrument.center") * scaleUnit(_getRequiredString(kv, prefix + "wavelength.unit"), "m");
+				double stdev = _getRequiredDouble(kv, prefix + "wavelength.instrument.FWHM") * scaleUnit(_getRequiredString(kv, prefix + "wavelength.unit"), "m") / (2.0 * std::sqrt(2.0 * std::log(2.0)));
+				n_sample = _getOptionalInt(kv, prefix + "wavelength.instrument.n_sample", 10);
+				if(n_sample < 5)
+				{
+					n_sample = 5;
+				}
+				wavelength_list.resize(n_sample);
+				window_function.resize(n_sample);
+				n_wavelength = n_sample;
+				wavelength_min = center - stdev * 5.0;
+				wavelength_max = center + stdev * 5.0;
+				double d_wn = (wavelength_max - wavelength_min) / double(n_sample - 1);
+
+				for(int i = 0; i < n_sample; i ++)
+				{
+					wavelength_list[i] = wavelength_min + double(i) * d_wn;
+					window_function[i] = 1.0 / std::sqrt(2.0 * PI * stdev * stdev) * std::exp(-(wavelength_list[i] - center) * (wavelength_list[i] - center) / (2.0 * stdev * stdev));
+				}
+
+				normalizeWindowFunction(window_function);
+			}
+			else if(window_function_type == WindowFunctionType::Rectangle)
+			{
+				double center = _getRequiredDouble(kv, prefix + "wavelength.instrument.center") * scaleUnit(_getRequiredString(kv, prefix + "wavelength.unit"), "m");
+				double width = _getRequiredDouble(kv, prefix + "wavelength.instrument.width") * scaleUnit(_getRequiredString(kv, prefix + "wavelength.unit"), "m");
+				n_sample = _getOptionalInt(kv, prefix + "wavelength.instrument.n_sample", 10);
+				if(n_sample < 5)
+				{
+					n_sample = 5;
+				}
+				wavelength_list.resize(n_sample);
+				wavelength_min = center - width * 0.5;
+				wavelength_max = center + width * 0.5;
+				double d_wn = (wavelength_max - wavelength_min) / double(n_sample - 1);
+
+				for(int i = 0; i < n_sample; i ++)
+				{
+					wavelength_list[i] = wavelength_min + double(i) * d_wn;
+					window_function[i] = 1.0;
+				}
+
+				normalizeWindowFunction(window_function);
+			}
+			else if(window_function_type == WindowFunctionType::External)
+			{
+				filename_window_function = _getRequiredString(kv, prefix + "wavelength.instrument.file");
+				auto wf = _importWindowFunction(filename_window_function, _getRequiredString(kv, prefix + "wavelength.instrument.unit"));
+
+				n_sample = _getOptionalInt(kv, prefix + "wavelength.instrument.n_sample", 10);
+				if(n_sample < 5)
+				{
+					n_sample = 5;
+				}
+				wavelength_list.resize(n_sample);
+				window_function.resize(n_sample);
+				wavelength_min = wf[0][0];
+				wavelength_max = wf[wf.size() - 1][0];
+				double d_wn = (wavelength_max - wavelength_min) / double(n_sample - 1);
+				
+				for(int i = 0; i < n_sample; i ++)
+				{
+					wavelength_list[i] = wavelength_min + double(i) * d_wn;
+					for(int j = 0; j < wf.size() - 1; j ++)
+					{
+						if(wf[j][0] <= wavelength_list[i] && wavelength_list[i] <= wf[j + 1][0])
+						{
+							double r = (wavelength_list[i] - wf[j][0]) / (wf[j + 1][0] - wf[j][0]);
+							window_function[i] = wf[j][1] + r * (wf[j + 1][1] - wf[j][1]);
+							break;
+						}
+					}
+
+					// std::cout << wavelength_list[i] << ", " << window_function[i]
+				}
+
+				normalizeWindowFunction(window_function);
+			}
+			else if(window_function_type == WindowFunctionType::Table)
+			{
+				throw std::runtime_error("Table for window function is currently not supported.");
+			}
+		}
+	}
+
+	tau_initial_layer = _getOptionalDouble(kv, prefix + "tau_initial_layer", tau_initial_layer);
+	enable_atmospheric_emission = _getOptionalBool(kv, prefix + "enable_atmospheric_emission", false);
+	//enable_delta_m_approximation = _getOptionalBool(kv, prefix + "enable_delta_m_approximation", false);
+	//std::cout << "enable_atmospheric_emission: " << enable_atmospheric_emission << std::endl;
+	
+	delta_approximation_type = _toDeltaApproximationType(_getOptionalString(kv, prefix + "delta_approximation.type", "Disable"));
+	if(delta_approximation_type == DeltaApproximationType::FWHM)
+	{
+		f_target = _getRequiredDouble(kv, prefix + "delta_approximation.f_target");
+	}
+	else if(delta_approximation_type == DeltaApproximationType::Cumulative)
+	{
+		fwhm_ratio = _getOptionalDouble(kv, prefix + "delta_approximation.fwhm_ratio", 0.5);
+	}
+
+	icss_type = _toInCellSuperSamplingType(_getOptionalString(kv, prefix + "in_cell_supersampling.type", "Disable"));
+	if(icss_type == InCellSuperSamplingType::Enable)
+	{
+		n_icss_sample = _getRequiredInt(kv, prefix + "in_cell_supersampling.n_sample");
+	}
+
+	grid_type = _toGridType(_getOptionalString(kv, prefix + "grid.type", "Gauss_Radau"));
+	n_theta = _getRequiredInt(kv, prefix + "grid.n_zenith_angle");
+	n_phi = _getOptionalInt(kv, prefix + "grid.n_azimuth_angle", -99);
+	n_mode = _getOptionalInt(kv, prefix + "grid.n_fourier_mode", -99);
+
+	return;
+}
+
+inline void Configuration::_loadSurface(std::map<std::string,std::string> kv)
+{
+	std::string prefix = "surface.";
+	
+	surface_type = _toSurfaceType(_getOptionalString(kv, prefix + "type", "no_surface"));
+
+	if(surface_type != SurfaceType::NoSurface)
+	{
+		surface_albedo = _getOptionalDouble(kv, prefix + "albedo", 1.0);
+		surface_temperature = _getRequiredDouble(kv, prefix + "temperature") * scaleUnit(_getOptionalString(kv, prefix + "unit", "K"), "K");
+	}
+
+	return;
+}
+
+inline void Configuration::_loadAtmosphere(std::map<std::string,std::string> kv)
+{
+	std::string prefix = "atmosphere.";
+	// layering
+	{
+		std::string base = prefix + "layering.";
+		
+		bool is_edge = _hasKey(kv, base + "z_edge.0");
+		bool is_center = _hasKey(kv, base + "z_center.0");
+
+		if(is_edge == true && is_center == false)
+		{
+			z_center.clear();
+			int n_edge = _countArrayEntries(kv, base + "z_edge");
+
+			for(int i = 0; i < n_edge; i ++)
+			{
+				z_edge.push_back(_getRequiredDouble(kv, base + "z_edge." + std::to_string(i)) * scaleUnit(_getRequiredString(kv, base + "unit"), "m"));
+			}
+		}
+		else if(is_edge == false && is_center == true)
+		{
+			z_edge.clear();
+			int n_center = _countArrayEntries(kv, base + "z_center");
+			//std::cout << n_z_center << std::endl;
+			for(int i = 0; i < n_center; i ++)
+			{
+				z_center.push_back(_getRequiredDouble(kv, base + "z_center." + std::to_string(i)) * scaleUnit(_getRequiredString(kv, base + "unit"), "m"));
+			}
+		}
+		else if(is_edge == false && is_center == false)
+		{
+			throw std::runtime_error("One of z_edge or z_center must be specified.");
+		}
+		else
+		{
+			throw std::runtime_error("Only one of z_edge or z_center must be specified, not both.");
+		}
+	}
+	// temperature
+	{
+		std::string base = prefix + "temperature.";
+
+		is_same_temperature_layering_atmosphere = !_hasKey(kv, base + "unit.0");
+		if(_toVerticalTemperatureProfile(_getRequiredString(kv, base + "vertical_profile")) == VerticalTemperatureProfile::VIRA_EQUATOR || _toVerticalTemperatureProfile(_getRequiredString(kv, base + "vertical_profile")) == VerticalTemperatureProfile::VIRA_45 || _toVerticalTemperatureProfile(_getRequiredString(kv, base + "vertical_profile")) == VerticalTemperatureProfile::VIRA_60)
+		{
+			is_same_temperature_layering_atmosphere = false;
+		}
+
+		if(is_same_temperature_layering_atmosphere == false)
+		{
+			vertical_temperature_profile = _toVerticalTemperatureProfile(_getRequiredString(kv, base + "vertical_profile"));
+			vertical_temperature_interpolation = _toVerticalProfileInterpolation(_getOptionalString(kv, base + "interpolation", "linear"));
+
+			if(vertical_temperature_profile == VerticalTemperatureProfile::Table)
+			{
+				int n_tics = _countArrayEntries(kv, base + "table");
+
+				for(int i = 0; i < n_tics; i ++)
+				{
+					double alt = _getRequiredDouble(kv, base + "table." + std::to_string(i) + ".0") * scaleUnit(_getRequiredString(kv, base + "unit.0"), "m");
+					double temp = _getRequiredDouble(kv, base + "table." + std::to_string(i) + ".1") * scaleUnit(_getRequiredString(kv, base + "unit.1"), "K");
+					temperature_profile.push_back({alt, temp});
+
+					//std::cout << alt << ", " << temp << std::endl;
+				}
+			}
+			else if(vertical_temperature_profile == VerticalTemperatureProfile::External)
+			{
+				throw std::runtime_error("temperature profile \"External\" is not supported currently.");
+			}
+		}
+		else
+		{
+			int n_tics = _countArrayEntries(kv, base + "table");
+			int n_layer;
+			if(z_center.size() > 0)
+			{
+				n_layer = z_center.size();
+			}
+			else if(z_edge.size() > 0)
+			{
+				n_layer = z_edge.size() - 1;
+			}
+
+			if(n_layer != n_tics)
+			{
+				throw std::runtime_error("Temperature layering is not consistent with atmospherer. Use same layering with atmospher, otherwise give array of [alt, value].");
+			}
+
+			double alt = std::numeric_limits<double>::quiet_NaN();
+
+			for(int i = 0; i < n_tics; i ++)
+			{
+				double temp = _getRequiredDouble(kv, base + "table." + std::to_string(i)) * scaleUnit(_getRequiredString(kv, base + "unit"), "K");
+				temperature_profile.push_back({alt, temp});
+			}
+		}
+	}
+	// pressure
+	{
+		std::string base = prefix + "pressure.";
+
+		is_same_pressure_layering_atmosphere = !_hasKey(kv, base + "unit.0");
+		if(_toVerticalPressureProfile(_getRequiredString(kv, base + "vertical_profile")) == VerticalPressureProfile::VIRA_EQUATOR || _toVerticalPressureProfile(_getRequiredString(kv, base + "vertical_profile")) == VerticalPressureProfile::VIRA_45 || _toVerticalPressureProfile(_getRequiredString(kv, base + "vertical_profile")) == VerticalPressureProfile::VIRA_60)
+		{
+			is_same_pressure_layering_atmosphere = false;
+		}
+
+		if(is_same_pressure_layering_atmosphere == false)
+		{
+			vertical_pressure_profile = _toVerticalPressureProfile(_getRequiredString(kv, base + "vertical_profile"));
+			vertical_pressure_interpolation = _toVerticalProfileInterpolation(_getOptionalString(kv, base + "interpolation", "exponential"));
+
+			if(vertical_pressure_profile == VerticalPressureProfile::Table)
+			{
+				int n_tics = _countArrayEntries(kv, base + "table");
+
+				for(int i = 0; i < n_tics; i ++)
+				{
+					double alt = _getRequiredDouble(kv, base + "table." + std::to_string(i) + ".0") * scaleUnit(_getRequiredString(kv, base + "unit.0"), "m");
+					double pres = _getRequiredDouble(kv, base + "table." + std::to_string(i) + ".1") * scaleUnit(_getRequiredString(kv, base + "unit.1"), "Pa");
+					pressure_profile.push_back({alt, pres});
+
+					//std::cout << alt << ", " << temp << std::endl;
+				}
+			}
+			else if(vertical_pressure_profile == VerticalPressureProfile::External)
+			{
+				throw std::runtime_error("pressure profile \"External\" is not supported currently.");
+			}
+			else if(vertical_pressure_profile == VerticalPressureProfile::Hydrostatic)
+			{
+				throw std::runtime_error("pressure profile \"Hydrostatic\" is not supported currently.");
+			}
+		}
+		else
+		{
+			int n_tics = _countArrayEntries(kv, base + "table");
+			int n_layer;
+			if(z_center.size() > 0)
+			{
+				n_layer = z_center.size();
+			}
+			else if(z_edge.size() > 0)
+			{
+				n_layer = z_edge.size() - 1;
+			}
+
+			if(n_layer != n_tics)
+			{
+				throw std::runtime_error("Pressure layering is not consistent with atmospherer. Use same layering with atmospher, otherwise give array of [alt, value].");
+			}
+
+			double alt = std::numeric_limits<double>::quiet_NaN();
+
+			for(int i = 0; i < n_tics; i ++)
+			{
+				double pres = _getRequiredDouble(kv, base + "table." + std::to_string(i)) * scaleUnit(_getRequiredString(kv, base + "unit"), "Pa");
+				pressure_profile.push_back({alt, pres});
+			}
+		}
+	}
+	// number density
+	{
+		std::string base = prefix + "number_density.";
+
+		bool is_ideal_gas = _toVerticalNumberDensityProfile(_getRequiredString(kv, base + "vertical_profile")) == VerticalNumberDensityProfile::IdealGas;
+
+		if(is_ideal_gas)
+		{
+			vertical_number_density_profile = VerticalNumberDensityProfile::IdealGas;
+		}
+		else
+		{
+			is_same_number_density_layering_atmosphere = !_hasKey(kv, base + "unit.0");
+			if(_toVerticalNumberDensityProfile(_getRequiredString(kv, base + "vertical_profile")) == VerticalNumberDensityProfile::VIRA_EQUATOR || _toVerticalNumberDensityProfile(_getRequiredString(kv, base + "vertical_profile")) == VerticalNumberDensityProfile::VIRA_45 || _toVerticalNumberDensityProfile(_getRequiredString(kv, base + "vertical_profile")) == VerticalNumberDensityProfile::VIRA_60)
+			{
+				is_same_number_density_layering_atmosphere = false;
+			}
+
+			if(is_same_number_density_layering_atmosphere == false)
+			{
+				vertical_number_density_profile = _toVerticalNumberDensityProfile(_getRequiredString(kv, base + "vertical_profile"));
+				vertical_number_density_interpolation = _toVerticalProfileInterpolation(_getOptionalString(kv, base + "interpolation", "exponential"));
+
+				if(vertical_number_density_profile == VerticalNumberDensityProfile::Table)
+				{
+					int n_tics = _countArrayEntries(kv, base + "table");
+
+					for(int i = 0; i < n_tics; i ++)
+					{
+						double alt = _getRequiredDouble(kv, base + "table." + std::to_string(i) + ".0") * scaleUnit(_getRequiredString(kv, base + "unit.0"), "m");
+						double pres = _getRequiredDouble(kv, base + "table." + std::to_string(i) + ".1") * scaleUnit(_getRequiredString(kv, base + "unit.1"), "m-3");
+						number_density_profile.push_back({alt, pres});
+
+						//std::cout << alt << ", " << temp << std::endl;
+					}
+				}
+				else if(vertical_number_density_profile == VerticalNumberDensityProfile::External)
+				{
+					throw std::runtime_error("Number density profile \"External\" is not supported currently.");
+				}
+			}
+			else
+			{
+				unit_dim_number_density = getUnitInfo(_getRequiredString(kv, base + "unit")).dim;
+
+				int n_tics = _countArrayEntries(kv, base + "table");
+				int n_layer;
+				if(z_center.size() > 0)
+				{
+					n_layer = z_center.size();
+				}
+				else if(z_edge.size() > 0)
+				{
+					n_layer = z_edge.size() - 1;
+				}
+
+				if(n_layer != n_tics)
+				{
+					throw std::runtime_error("Number density layering is not consistent with atmospherer. Use same layering with atmospher, otherwise give array of [alt, value].");
+				}
+
+				double alt = std::numeric_limits<double>::quiet_NaN();
+
+				if(unit_dim_number_density == UnitDim::NumberDensity)
+				{
+					for(int i = 0; i < n_tics; i ++)
+					{
+						double val = _getRequiredDouble(kv, base + "table." + std::to_string(i)) * scaleUnit(_getRequiredString(kv, base + "unit"), "m-3");
+						number_density_profile.push_back({alt, val});
+					}
+				}
+				else if(unit_dim_number_density == UnitDim::ColumnNumberDensity)
+				{
+					for(int i = 0; i < n_tics; i ++)
+					{
+						double val = _getRequiredDouble(kv, base + "table." + std::to_string(i)) * scaleUnit(_getRequiredString(kv, base + "unit"), "m-2");
+						number_density_profile.push_back({alt, val});
+					}
+				}
+			}
+		}
+	}
+	// species
+	{
+		int n_species = _countArrayEntries(kv, prefix + "species");
+		// std::cout << n_species << std::endl;
+
+		species.clear();
+
+		bool is_hitran = false;
+
+		for (int i = 0; i < n_species; i ++)
+		{
+			std::string base = prefix + "species." + std::to_string(i) + ".";
+
+			Species s;
+
+			// vertical profile table
+			s.is_same_layering_atmosphere = !_hasKey(kv, base + "vertical_profile.unit.1");
+
+			if(s.is_same_layering_atmosphere == false)
+			{
+				std::string unit_alt = _getRequiredString(kv, base + "vertical_profile.unit.0");
+				std::string unit_val = _getRequiredString(kv, base + "vertical_profile.unit.1");
+
+				if(getUnitInfo(unit_val).dim == UnitDim::Dimensionless)
+				{
+					s.vertical_profile_type = VerticalProfileType::MixingRatio;
+				}
+				else if(getUnitInfo(unit_val).dim == UnitDim::NumberDensity)
+				{
+					s.vertical_profile_type = VerticalProfileType::NumberDensity;
+				}
+				
+				int n_tics = _countArrayEntries(kv, base + "vertical_profile.table");
+				//std::cout << n_tics << std::endl;
+				for(int j = 0; j < n_tics; j ++)
+				{
+					double alt = _getRequiredDouble(kv, base + "vertical_profile.table." + std::to_string(j) + ".0") * scaleUnit(unit_alt, "m");
+
+					if(s.vertical_profile_type == VerticalProfileType::NumberDensity)
+					{
+						//double val = std::stod(splitFlow(it->second.substr(1, it->second.size()-2))[1]) * scaleUnit(unit_val, "m-3");
+						double val = _getRequiredDouble(kv, base + "vertical_profile.table." + std::to_string(j) + ".1") * scaleUnit(unit_val, "m-3");
+						s.vertical_profile.push_back({alt, val});
+					}
+					else if(s.vertical_profile_type == VerticalProfileType::MixingRatio)
+					{
+						//double val = std::stod(splitFlow(it->second.substr(1, it->second.size()-2))[1]) * scaleUnit(unit_val, "1");
+						double val = _getRequiredDouble(kv, base + "vertical_profile.table." + std::to_string(j) + ".1") * scaleUnit(unit_val, "mol/mol");
+						//std::cout << val << ", " << unit_val << ", " << scaleUnit(unit_val, "mol/mol") << std::endl;
+						s.vertical_profile.push_back({alt, val});
+					}
+				}
+
+				s.vertical_profile_interpolation = _toSpeciesVerticalProfileInterpolation(_getOptionalString(kv, base + "vertical_profile.interpolation", "Exponential"));
+			}
+			else
+			{
+				std::string unit_val = _getRequiredString(kv, base + "vertical_profile.unit");
+
+				if(getUnitInfo(unit_val).dim == UnitDim::Dimensionless)
+				{
+					s.vertical_profile_type = VerticalProfileType::MixingRatio;
+				}
+				else if(getUnitInfo(unit_val).dim == UnitDim::NumberDensity)
+				{
+					s.vertical_profile_type = VerticalProfileType::NumberDensity;
+				}
+				else if(getUnitInfo(unit_val).dim == UnitDim::ColumnNumberDensity)
+				{
+					s.vertical_profile_type = VerticalProfileType::ColumnNumberDensity;
+				}
+				
+				int n_tics = _countArrayEntries(kv, base + "vertical_profile.table");
+				int n_layer;
+				if(z_center.size() > 0)
+				{
+					n_layer = z_center.size();
+				}
+				else if(z_edge.size() > 0)
+				{
+					n_layer = z_edge.size() - 1;
+				}
+
+				if(n_layer != n_tics)
+				{
+					throw std::runtime_error("Layering is not consistent with atmospherer. Use same layering with atmospher, otherwise give array of [alt, value].");
+				}
+
+				//std::cout << n_tics << std::endl;
+				for(int j = 0; j < n_tics; j ++)
+				{
+					double alt = std::numeric_limits<double>::quiet_NaN();
+
+					if(s.vertical_profile_type == VerticalProfileType::NumberDensity)
+					{
+						double val = _getRequiredDouble(kv, base + "vertical_profile.table." + std::to_string(j)) * scaleUnit(unit_val, "m-3");
+						s.vertical_profile.push_back({alt, val});
+					}
+					else if(s.vertical_profile_type == VerticalProfileType::MixingRatio)
+					{
+						double val = _getRequiredDouble(kv, base + "vertical_profile.table." + std::to_string(j)) * scaleUnit(unit_val, "mol/mol");
+						s.vertical_profile.push_back({alt, val});
+					}
+					else if(s.vertical_profile_type == VerticalProfileType::ColumnNumberDensity)
+					{
+						double val = _getRequiredDouble(kv, base + "vertical_profile.table." + std::to_string(j)) * scaleUnit(unit_val, "m-2");
+						s.vertical_profile.push_back({alt, val});
+					}
+				}
+
+				// s.vertical_profile_interpolation = _toSpeciesVerticalProfileInterpolation(_getOptionalString(kv, base + "vertical_profile.interpolation", "Exponential"));
+			}
+
+			s.name = _getRequiredString(kv, base + "name");
+			s.species_state = _toSpeciesState(_getRequiredString(kv, base + "state"));
+
+			if(s.species_state == SpeciesState::Molecule)
+			{
+				s.species_type = _toSpeciesType(_getRequiredString(kv, base + "type"));
+
+				if(s.species_type == SpeciesType::Scatterer || s.species_type == SpeciesType::Extinction)
+				{
+					s.scatter_type = _toScatterType(_getRequiredString(kv, base + "scatter_type"));
+					s.scattering_cross_section_type = _toCrossSectionType(_getRequiredString(kv, base + "scattering_cross_section.type"));
+					
+					if(s.scattering_cross_section_type == CrossSectionType::Constant)
+					{
+						//s.unit_cross_section = _getOptionalString(kv, base + "cross_section.unit", "m2");
+						s.scattering_cross_section = _getRequiredDouble(kv, base + "scattering_cross_section.value") * scaleUnit(_getOptionalString(kv, base + "scattering_cross_section.unit", "m2"), "m2");
+					}
+					else if(s.scattering_cross_section_type == CrossSectionType::External)
+					{
+						s.filename_scattering_cross_section = _getRequiredString(kv, base + "scattering_cross_section.file");
+						s.unit_input_scattering_cross_section = _getOptionalString(kv, base + "scattering_cross_section.unit.1", "m2");
+						auto x_unit = getUnitInfo(_getRequiredString(kv, base + "scattering_cross_section.unit.0"));
+						if(x_unit.dim == UnitDim::Length)
+						{
+							s.unit_input_scattering_wavelength = _getRequiredString(kv, base + "scattering_cross_section.unit.0");
+							s.unit_x_input_scattering = UnitDim::Length;
+						}
+						else
+						{
+							s.unit_input_scattering_wavenumber = _getRequiredString(kv, base + "scattering_cross_section.unit.0");
+							s.unit_x_input_scattering = UnitDim::Wavenumber;
+						}
+					}
+
+					if(s.scatter_type == ScatterType::Isotropic)
+					{
+						;
+					}
+					else if(s.scatter_type == ScatterType::Rayleigh)
+					{
+						;
+					}
+					else if(s.scatter_type == ScatterType::HenyeyGreenstein)
+					{
+						s.g_factor = _getRequiredDouble(kv, base + "g_factor");
+					}
+					else if(s.scatter_type == ScatterType::Mie)
+					{
+						throw std::runtime_error("mie scattering is not supported for molecules.");
+					}
+				}
+				if(s.species_type == SpeciesType::Absorber || s.species_type == SpeciesType::Extinction)
+				{
+					s.absorption_cross_section_type = _toCrossSectionType(_getRequiredString(kv, base + "absorption_cross_section.type"));
+					
+					if(s.absorption_cross_section_type == CrossSectionType::Constant)
+					{
+						//s.unit_cross_section = _getOptionalString(kv, base + "cross_section.unit", "m2");
+						s.absorption_cross_section = _getRequiredDouble(kv, base + "absorption_cross_section.value") * scaleUnit(_getOptionalString(kv, base + "absorption_cross_section.unit", "m2"), "m2");
+					}
+					else if(s.absorption_cross_section_type == CrossSectionType::External)
+					{
+						s.filename_absorption_cross_section = _getRequiredString(kv, base + "absorption_cross_section.file");
+						s.unit_input_absorption_cross_section = _getOptionalString(kv, base + "absorption_cross_section.unit.1", "m2");
+						auto x_unit = getUnitInfo(_getRequiredString(kv, base + "absorption_cross_section.unit.0"));
+						if(x_unit.dim == UnitDim::Length)
+						{
+							s.unit_input_absorption_wavelength = _getRequiredString(kv, base + "absorption_cross_section.unit.0");
+							s.unit_x_input_absorption = UnitDim::Length;
+						}
+						else
+						{
+							s.unit_input_absorption_wavenumber = _getRequiredString(kv, base + "absorption_cross_section.unit.0");
+							s.unit_x_input_absorption = UnitDim::Wavenumber;
+						}
+					}
+					else if(s.absorption_cross_section_type == CrossSectionType::HITRAN)
+					{
+						is_hitran = true;
+
+						s.filename_hitran = _getRequiredString(kv, base + "absorption_cross_section.file");
+						s.molecule_id = _getOptionalInt(kv, base + "molecule_id", hitran::molecule_id_from_name(s.name));
+						bool is_iso_table = _hasKey(kv, base + "isotopologues.local_id.0");
+
+						IsotopologueAbundance abundance_type = IsotopologueAbundance::HITRAN;
+						IsotopologueType iso_type = IsotopologueType::All;
+
+						std::vector<int> iso_local_id;
+						std::vector<double> abundance;
+
+						if(is_iso_table)
+						{
+							int n_iso = _countArrayEntries(kv, base + "isotopologues.local_id");
+							
+							for(int j = 0; j < n_iso; j ++)
+							{
+								iso_local_id.push_back(_getRequiredInt(kv, base + "isotopologues.local_id." + std::to_string(j)));
+							}
+
+							iso_type = IsotopologueType::Defined;
+						}
+						else
+						{
+							if(toUpper(_getRequiredString(kv, base + "isotopologues.local_id")) == "ALL")
+							{
+								for(int j = 0; j < hitran::isotopologues.size(); j ++)
+								{
+									if(hitran::isotopologues[j].molecule_id == s.molecule_id)
+									{
+										iso_local_id.push_back(hitran::isotopologues[j].local_iso_id);
+									}
+								}
+							}
+							else
+							{
+								throw std::runtime_error("Unknown input: " + _getRequiredString(kv, base + "isotopologues.local_id"));
+							}
+						}
+
+						bool is_abundance_table = _hasKey(kv, base + "isotopologues.abundance.0");
+
+						if(is_abundance_table == true)
+						{
+							int n_iso = _countArrayEntries(kv, base + "isotopologues.abundance");
+
+							if(n_iso != iso_local_id.size())
+							{
+								throw std::runtime_error("Sizes of local ids and abundance mismatch.");
+							}
+							else
+							{
+								for(int j = 0; j < n_iso; j ++)
+								{
+									abundance.push_back(_getRequiredDouble(kv, base + "isotopologues.abundance." + std::to_string(j)));
+								}
+							}
+						}
+						else
+						{
+							if(toUpper(_getRequiredString(kv, base + "isotopologues.abundance")) == "HITRAN")
+							{
+								for(int j = 0; j < iso_local_id.size(); j ++)
+								{
+									int global_id = hitran::global_from_mol_local(s.molecule_id, iso_local_id[j]);
+
+									for(int k = 0; k < hitran::isotopologues.size(); k ++)
+									{
+										if(global_id == hitran::isotopologues[k].global_id)
+										{
+											abundance.push_back(hitran::isotopologues[k].abundance);
+											break;
+										}
+									}
+								}
+							}
+							else
+							{
+								throw std::runtime_error("Unknown input: " + _getRequiredString(kv, base + "isotopologues.local_id"));
+							}
+						}
+
+						if(_hasKey(kv, base + "isotopologues.scaler"))
+						{
+							int n_scaler = _countArrayEntries(kv, base + "isotopologues.scaler");
+							
+							if(n_scaler != iso_local_id.size())
+							{
+								throw std::runtime_error("Sizes of local ids and abundance mismatch.");
+							}
+							else
+							{
+								for(int k = 0; k < n_scaler; k ++)
+								{
+									abundance[k] *= _getRequiredDouble(kv, base + "isotopologues.scaler." + std::to_string(k));
+								}
+							}
+						}
+
+						bool is_normalize = _getOptionalBool(kv, base + "isotopologues.normalize", false);
+
+						if(is_normalize == true)
+						{
+							double sum = 0.0;
+							for(int j = 0; j < abundance.size(); j ++)
+							{
+								sum += abundance[j];
+							}
+
+							for(int j = 0; j < abundance.size(); j ++)
+							{
+								abundance[j] /= sum;
+							}
+						}
+
+						for(int j = 0; j < iso_local_id.size(); j ++)
+						{
+							Species s_iso = s;
+							
+							s_iso.isotopologue = hitran::iso_from_global(hitran::global_from_mol_local(s.molecule_id, iso_local_id[j]));
+							s_iso.name = s_iso.isotopologue.isotopic_formula;
+
+							if(is_wavenumber == true)
+							{
+								double wavenumber_min = std::max(0.0, wavenumber_list[0] - 1000.0 * scaleUnit("cm-1", "m-1"));
+								double wavenumber_max = wavenumber_list[wavenumber_list.size() - 1] + 1000.0 * scaleUnit("cm-1", "m-1");
+
+								s_iso.lines = hitran::loadLines(s_iso.filename_hitran, s_iso.isotopologue, wavenumber_min, wavenumber_max, false);
+								std::cout << s_iso.lines.size() << " line(s) loaded for " << s_iso.name << ": wavenumber = (" << wavenumber_min << ", " << wavenumber_max << ")" << std::endl;
+							}
+							else
+							{
+								double wavenumber_min = std::max(0.0, 1.0 / wavelength_list[wavelength_list.size() - 1] - 1000.0 * scaleUnit("cm-1", "m-1"));
+								double wavenumber_max = 1.0 / wavelength_list[0] + 1000.0 * scaleUnit("cm-1", "m-1");
+
+								s_iso.lines = hitran::loadLines(s_iso.filename_hitran, s_iso.isotopologue, wavenumber_min, wavenumber_max, false);
+								std::cout << s_iso.lines.size() << " line(s) loaded for " << s_iso.name << ": wavelength = (" << 1.0 / wavenumber_max << ", " << 1.0 / wavenumber_min << ")" << std::endl;
+							}
+
+							s_iso.isotopologue.loadQTable(s_iso.filename_hitran);
+
+							for(int k = 0; k < s.vertical_profile.size(); k ++)
+							{
+								s_iso.vertical_profile[k][1] *= abundance[j];
+								s.abundance = abundance[j];
+							}
+
+							species.push_back(s_iso);
+						}
+					}
+				}
+			}
+			else if(s.species_state == SpeciesState::Aerosol)
+			{
+				s.scatter_type = _toScatterType(_getRequiredString(kv, base + "scatter_type"));
+				
+				if(s.scatter_type == ScatterType::Mie)
+				{
+					s.size_distribution = _toParticleSizeDistribution(_getRequiredString(kv, base + "size_distribution.function"));
+					s.unit_input_radius = _getOptionalString(kv, base + "size_distribution.unit", "m");
+
+					// enum class ParticleSizeDistribution{Delta, Gaussian, Rectangular, LogNormal, External};
+
+					if(s.size_distribution == ParticleSizeDistribution::Delta)
+					{
+						s.size = _getRequiredDouble(kv, base + "size_distribution.radius") * scaleUnit(s.unit_input_radius, "m");
+					}
+					else if(s.size_distribution == ParticleSizeDistribution::LogNormal)
+					{
+						s.r_g = _getRequiredDouble(kv, base + "size_distribution.r_g") * scaleUnit(s.unit_input_radius, "m");
+						s.sigma_g = _getRequiredDouble(kv, base + "size_distribution.sigma_g");
+						s.n_radius = _getOptionalInt(kv, base + "size_distribution.n_particle_size_distribution", s.n_radius);
+					}
+					else if(s.size_distribution == ParticleSizeDistribution::Gaussian)
+					{
+						s.r_mean = _getRequiredDouble(kv, base + "size_distribution.r_mean") * scaleUnit(s.unit_input_radius, "m");
+						s.sigma = _getRequiredDouble(kv, base + "size_distribution.sigma") * scaleUnit(s.unit_input_radius, "m");
+						s.n_radius = _getOptionalInt(kv, base + "size_distribution.n_particle_size_distribution", s.n_radius);
+					}
+					else if(s.size_distribution == ParticleSizeDistribution::Rectangular)
+					{
+						s.r_mean = _getRequiredDouble(kv, base + "size_distribution.r_mean") * scaleUnit(s.unit_input_radius, "m");
+						s.width = _getRequiredDouble(kv, base + "size_distribution.width") * scaleUnit(s.unit_input_radius, "m");
+						s.n_radius = _getOptionalInt(kv, base + "size_distribution.n_particle_size_distribution", s.n_radius);
+					}
+
+					s.refractive_index_type = _toRefractiveIndexType(_getRequiredString(kv, base + "refractive_index.type"));					
+					
+					if(s.refractive_index_type == RefractiveIndexType::Constant)
+					{
+						s.nr = _getRequiredDouble(kv, base + "refractive_index.value.0");
+						s.ni = _getRequiredDouble(kv, base + "refractive_index.value.1");
+					}
+					else if(s.refractive_index_type == RefractiveIndexType::External)
+					{
+						s.filename_refractive_index = _getRequiredString(kv, base + "refractive_index.file");
+						auto unit_x = getUnitInfo(_getRequiredString(kv, base + "refractive_index.unit"));
+						if(unit_x.dim == UnitDim::Length)
+						{
+							s.unit_input_refractive_index_wavelength = _getRequiredString(kv, base + "refractive_index.unit");
+							s.unit_x_input_refractive_index = UnitDim::Length;
+						}
+						else
+						{
+							s.unit_input_refractive_index_wavenumber = _getRequiredString(kv, base + "refractive_index.unit");
+							s.unit_x_input_refractive_index = UnitDim::Wavenumber;
+						}
+					}
+					else if(s.refractive_index_type == RefractiveIndexType::VerticalProfile)
+					{
+						int n_vert = _countArrayEntries(kv, base + "refractive_index.table");
+
+						for(int i = 0; i < n_vert; i ++)
+						{
+							double alt = _getRequiredDouble(kv, base + "refractive_index.table." + std::to_string(i) + ".0") * scaleUnit(_getRequiredString(kv, base + "refractive_index.unit"), "m");
+							double nr = _getRequiredDouble(kv, base + "refractive_index.table." + std::to_string(i) + ".1");
+							double ni = _getRequiredDouble(kv, base + "refractive_index.table." + std::to_string(i) + ".2");
+							// pressure_profile.push_back({alt, pres});
+
+							//std::cout << alt << ", " << temp << std::endl;
+
+							s.refractive_index_vertical_profile.push_back({alt, nr, ni});
+						}
+					}
+				}
+				else
+				{
+					throw std::runtime_error("only mie scattering is supported for aerosols.");
+				}
+			}
+			
+			if(s.absorption_cross_section_type != CrossSectionType::HITRAN)
+			{
+				species.push_back(s);
+			}
+		}
+
+		if(is_hitran == true)
+		{
+			const int n_diluent = _countArrayEntries(kv, prefix + "diluent.table");
+			const bool is_diluent = (n_diluent > 0);
+
+			if(is_diluent)
+			{
+				std::vector<std::string> sp;
+				std::vector<double> ratio;
+				
+				diluent.air = 0.0;
+				diluent.CO2 = 0.0;
+				diluent.H2 = 0.0;
+				diluent.He = 0.0;
+				diluent.H2O = 0.0;
+
+				bool is_set = false;
+
+				//std::cout << n_ztics << std::endl;
+				for(int i = 0; i < n_diluent; i ++)
+				{
+					sp.push_back(_getRequiredString(kv, prefix + "diluent.table." + std::to_string(i) + ".0"));
+					ratio.push_back(_getRequiredDouble(kv, prefix + "diluent.table." + std::to_string(i) + ".1"));
+				}
+
+				std::vector<std::string> seen;
+				for(size_t i = 0; i < sp.size(); ++i)
+				{
+					auto name = toUpper(sp[i]);
+
+					if (std::find(seen.begin(), seen.end(), name) == seen.end())
+					{
+						seen.push_back(name);
+					}
+					else
+					{
+						throw std::runtime_error("Duplicate broadening gas: " + sp[i] + ".");
+					}
+				}
+
+				for(int i = 0; i < sp.size(); i ++)
+				{
+					if(toUpper(sp[i]) == "AIR")
+					{
+						diluent.air = ratio[i];
+						is_set = true;
+					}
+					else if(toUpper(sp[i]) == "CO2")
+					{
+						diluent.CO2 = ratio[i];
+						is_set = true;
+					}
+					else if(toUpper(sp[i]) == "H2")
+					{
+						diluent.H2 = ratio[i];
+						is_set = true;
+					}
+					else if(toUpper(sp[i]) == "HE")
+					{
+						diluent.He = ratio[i];
+						is_set = true;
+					}
+					else if(toUpper(sp[i]) == "H2O")
+					{
+						diluent.H2O = ratio[i];
+						is_set = true;
+					}
+					else
+					{
+						throw std::runtime_error("Unknown broadening gas: " + sp[i] + ".");
+					}
+				}
+
+				if(is_set)
+				{
+					diluent.normalize();
+				}
+				else
+				{
+					throw std::runtime_error("At least one roadening gas must specified.");
+				}
+			}
+			else
+			{
+				throw std::runtime_error("Diluent must be specified.");
+			}
+		}
+	}
+
+	return;
+}
+
+inline int Configuration::_countArrayEntries(std::map<std::string, std::string> kv, std::string prefix)
+{
+	const std::string pfx = prefix + ".";
+	std::vector<char> seen;  // seen[i] が 1 なら index=i が存在
+
+	for (auto& [key,val] : kv)
+	{
+		// "prefix." で始まらないものはスキップ
+		if (key.rfind(pfx, 0) != 0) continue;
+
+		// pfx の直後から、次の '.' まで or 末尾までを番号文字列として抜き出す
+		size_t pos1 = pfx.size();
+		size_t pos2 = key.find('.', pos1);
+		std::string idxstr = (pos2 == std::string::npos) ? key.substr(pos1) : key.substr(pos1, pos2 - pos1);
+		if (idxstr.empty())
+		{
+			continue;
+		}
+
+		// 純粋に数字だけかチェック
+		bool ok = true;
+		for (char c : idxstr)
+		{
+			if (!std::isdigit(static_cast<unsigned char>(c)))
+			{
+				ok = false;
+				break;
+			}
+		}
+
+		if (!ok)
+		{
+			continue;
+		}
+
+		int idx = std::stoi(idxstr);
+		if (idx < 0)
+		{
+			continue;
+		}
+
+		// seen を必要な長さまで拡張してマーク
+		if ((size_t)idx >= seen.size())
+		{
+			seen.resize(idx + 1, 0);
+		}
+
+		seen[idx] = 1;
+	}
+
+	// true (1) になっているものを数える
+	return std::count(seen.begin(), seen.end(), 1);
+}
+
+inline bool Configuration::_hasKey(std::map<std::string,std::string> kv, std::string key)
+{
+    return kv.contains(key); // C++20
+    // return kv.find(key) != kv.end(); // C++17でもOK
+}
+
+inline std::vector<std::vector<double>> Configuration::_importWindowFunction(std::string filename, std::string unit)
+{
+	std::ifstream input(filename);
+	std::string str;
+
+	std::vector<std::vector<double>> window_function;
+
+	UnitInfo unit_info = getUnitInfo(unit);
+
+	while(std::getline(input, str))
+	{
+		if(str[0] != '#' && str.size() > 3)
+		{
+			auto data = splitString(str, ',');
+			std::vector<double> temp = {std::stod(data[0]) * unit_info.to_si, std::stod(data[1])};
+			window_function.push_back(temp);
+		}
+	}
+
+	std::sort(window_function.begin(), window_function.end(),[](std::vector<double>& v1, std::vector<double>& v2) {return v1[0] < v2[0];});
+
+	return window_function;
+}
+*/
+
+inline Configuration ConfigurationLoader::load(const std::string& filename)
+{
+	Configuration configuration;
+	auto kv = importYaml_(filename);
+
+	configuration.simulation = loadSimulation_(kv);
+	configuration.spectral_coordinate = loadSpectralCoordinate_(kv);
+	configuration.geometry = loadGeometry_(kv);
+	configuration.delta_m = loadDeltaM_(kv);
+	configuration.surface = loadSurface_(kv);
+	configuration.atmosphere = loadAtmosphere_(kv);
+	configuration.instrument = loadInstrument_(kv);
+
+	return configuration;
+}
+
+
+inline std::map<std::string, std::string> ConfigurationLoader::importYaml_(const std::string& filename)
+{
+	std::ifstream ifs(filename);
+	if (!ifs) throw std::runtime_error("Cannot open " + filename);
+
+	auto trim = [](std::string s) -> std::string
+	{
+		const auto ws = " \t\r\n";
+		auto b = s.find_first_not_of(ws);
+
+		if (b == std::string::npos)
+		{
+			return "";
+		}
+
+		auto e = s.find_last_not_of(ws);
+
+		return s.substr(b, e - b + 1);
+	};
+
+	// splitFlow ラムダ（深さ depth によってカンマを分割）
+	auto splitFlow = [&trim](std::string s) -> std::vector<std::string>
+	{
+		std::vector<std::string> elems;
+		std::string cur;
+		int depth = 0;
+		
+		for (size_t i = 0; i < s.size(); ++i)
+		{
+			char c = s[i];
+			if(c == '[')
+			{
+				depth++;
+				cur += c;
+			}
+			else if(c == ']')
+			{
+				depth--;
+				cur += c;
+			}
+			else if(c == ',' && depth == 0)
+			{
+				elems.push_back(trim(cur));
+				cur.clear();
+			}
+			else
+			{
+				cur += c;
+			}
+		}
+
+		if (!cur.empty()) elems.push_back(trim(cur));
+
+		return elems;
+	};
+
+	constexpr int INDENT = 2;
+	int prev_depth = 0, line_no = 0;
+	std::vector<std::string> stack;
+	std::map<std::string,int> seqCount;
+	std::map<std::string,std::string> kv;
+
+	std::string line;
+	while (std::getline(ifs, line))
+	{
+		++line_no;
+		// コメント削除
+		auto ph = line.find('#');
+		std::string raw = (ph == std::string::npos ? line : line.substr(0,ph));
+		if (trim(raw).empty()) continue;
+
+		// インデント数カウント
+		int nsp = 0;
+		while (nsp < (int)raw.size() && raw[nsp]==' ') ++nsp;
+		if (nsp % INDENT != 0)
+			throw std::runtime_error("Indent error at line " + std::to_string(line_no));
+		int depth = nsp / INDENT;
+		if (depth > prev_depth + 1)
+			throw std::runtime_error("Nesting error at line " + std::to_string(line_no));
+		prev_depth = depth;
+
+		// 本文
+		std::string body = trim(raw.substr(nsp));
+
+		// ブロックシーケンス（- item）優先処理
+		if (!body.empty() && body[0]=='-')
+		{
+			if (stack.empty())
+			{
+				throw std::runtime_error("Sequence item without parent at line " + std::to_string(line_no));
+			}
+		
+			// prefix を組み立て（例: "species.2.vertical_profile.table"）
+			std::string prefix = stack[0];
+			for (int i = 1; i < (int)stack.size(); ++i)
+			{
+				prefix += "." + stack[i];
+			}
+		
+			// "- " のあと、raw に "[1.0, 2e-13]" を取得
+			std::string raw = trim(body.substr(1));
+			int row = seqCount[prefix]++;
+		
+			// もし flow‐sequence なら "[" と "]" を外して splitFlow で分割
+			if (raw.size() >= 2 && raw.front() == '[' && raw.back() == ']')
+			{
+				auto cols = splitFlow(raw.substr(1, raw.size()-2));
+				for (size_t col = 0; col < cols.size(); ++col)
+				{
+					// species.2.vertical_profile.table.0.0 = "1.0"
+					// species.2.vertical_profile.table.0.1 = "2.7576e-13"
+					kv[prefix + "." 
+					   + std::to_string(row) + "." 
+					   + std::to_string(col)] = cols[col];
+				}
+			}
+			else
+			{
+				// 通常の単一要素シーケンスはそのまま
+				kv[prefix + "." + std::to_string(row)] = raw;
+			}
+			continue;
+		}
+
+		// key: ... 解析
+		auto pc = body.find(':');
+		if (pc == std::string::npos)
+			throw std::runtime_error("Syntax error at line " + std::to_string(line_no));
+		std::string key = trim(body.substr(0,pc));
+		std::string val = trim(body.substr(pc+1));
+
+		if (val.empty())
+		{
+			// ネスト開始行
+			if ((int)stack.size() > depth) stack.resize(depth);
+			if ((int)stack.size() == depth) stack.push_back(key);
+			else                         stack[depth] = key;
+		}
+		else
+		{
+			// 値付き行
+			// クオート除去
+			if ((val.front()=='"'&&val.back()=='"')||(val.front()=='\''&&val.back()=='\''))
+				val = val.substr(1,val.size()-2);
+
+			// フルパスキー
+			std::string full = (depth==0 ? key : stack[0]);
+			for (int i=1; i<depth; ++i) full += "." + stack[i];
+			if (depth>0) full += "." + key;
+
+			// フローシーケンスかどうか
+			if (val.size()>=2 && val.front()=='[' && val.back()==']')
+			{
+				// 内部を切り出して、深さ0 のカンマで分割
+				std::string inside = val.substr(1,val.size()-2);
+				auto items = splitFlow(inside);
+
+				for (size_t j=0; j<items.size(); ++j)
+				{
+					kv[full + "." + std::to_string(j)] = items[j];
+				}
+			}
+			else 
+			{
+				// 通常のスカラー値
+				kv[full] = val;
+			}
+		}
+	}
+
+	return kv;
+}
+
+
+inline Configuration::Simulation ConfigurationLoader::loadSimulation_(const std::map<std::string, std::string>& kv)
+{
+	Configuration::Simulation simulation;
+
+	std::string prefix = "simulation.";
+
+	simulation.simulation_name = getOptionalString_(kv, prefix + "name");
+	simulation.n_parallel = getOptionalInt_(kv, prefix + "n_parallel");
+	simulation.directory_name = getOptionalString_(kv, prefix + "directory");
+	simulation.logfile_name = getOptionalString_(kv, prefix + "logfile");
+	simulation.result_name = getOptionalString_(kv, prefix + "result");
+	simulation.n_scattering_angle = getOptionalInt_(kv, prefix + "n_scattering_angle");
+	simulation.tau_initial_layer = getOptionalDouble_(kv, prefix + "tau_initial_layer");
+	simulation.enable_atmospheric_emission = getOptionalBool_(kv, prefix + "enable_atmospheric_emission");	
+
+	return simulation;
+}
+
+inline Configuration::SpectralCoordinate ConfigurationLoader::loadSpectralCoordinate_(const std::map<std::string, std::string>& kv)
+{
+	Configuration::SpectralCoordinate spectral_coordinate;
+
+	std::string prefix = "simulation.spectral_coordinate.";
+
+	spectral_coordinate.spectral_coordinate_dimension = parseEnum_(getOptionalString_(kv, prefix + "dimension"), map_spectral_coordinate_dimension);
+	spectral_coordinate.spectral_coordinate_type = parseEnum_(getOptionalString_(kv, prefix + "type"), map_spectral_coordinate_type);
+	spectral_coordinate.unit = getOptionalString_(kv, prefix + "unit");
+
+	spectral_coordinate.mono = getOptionalDouble_(kv, prefix + "value");
+
+	int n_lambda = countArrayEntries_(kv, prefix + "tics");
+	for(int i = 0; i < n_lambda; i ++)
+	{
+		spectral_coordinate.specral_grid.push_back(getRequiredDouble_(kv, prefix + "tics." + std::to_string(i)));
+	}
+
+	spectral_coordinate.min = getOptionalDouble_(kv, prefix + "min");
+	spectral_coordinate.max = getOptionalDouble_(kv, prefix + "max");
+	spectral_coordinate.increment = getOptionalDouble_(kv, prefix + "increment");
+	spectral_coordinate.n_spectral = getOptionalInt_(kv, prefix + "count");
+
+	return spectral_coordinate;
+}
+
+inline Configuration::Geometry ConfigurationLoader::loadGeometry_(const std::map<std::string, std::string>& kv)
+{
+	Configuration::Geometry geometry;
+
+	std::string prefix = "simulation.grid.";
+
+	geometry.grid_type = parseEnum_(getOptionalString_(kv, prefix + "type", "Gauss_Radau"), map_grid_type);
+
+	geometry.n_theta = getOptionalInt_(kv, prefix + "n_zenith_angle");
+	geometry.n_phi = getOptionalInt_(kv, prefix + "n_azimuth_angle");
+	geometry.n_mode = getOptionalInt_(kv, prefix + "n_fourier_mode");
+
+	return geometry;
+}
+
+inline Configuration::DeltaM ConfigurationLoader::loadDeltaM_(const std::map<std::string, std::string>& kv)
+{
+	Configuration::DeltaM delta_m;
+
+	std::string prefix = "simulation.grid.delta_approximation.";
+
+	delta_m.delta_approximation_type = parseEnum_(getOptionalString_(kv, prefix + "type"), map_delta_approximation_type);
+	delta_m.f_target = getOptionalDouble_(kv, prefix + "f_target");
+	delta_m.fwhm_ratio = getOptionalDouble_(kv, prefix + "fwhm_ratio");
+	delta_m.icss_type = parseEnum_(getOptionalString_(kv, prefix + "in_cell_supersampling.type"), map_in_cell_super_sampling_type);
+	delta_m.n_icss_sample = getOptionalInt_(kv, prefix + "in_cell_supersampling.n_sample");
+
+	return delta_m;
+}
+
+inline Configuration::Surface ConfigurationLoader::loadSurface_(const std::map<std::string, std::string>& kv)
+{
+	Configuration::Surface surface;
+
+	std::string prefix = "surface.";
+	
+	surface.type = parseEnum_(getOptionalString_(kv, prefix + "type"), map_surface_type);
+	surface.albedo = getOptionalDouble_(kv, prefix + "albedo");
+	surface.temperature = getOptionalDouble_(kv, prefix + "temperature");
+	surface.unit = getOptionalString_(kv, prefix + "unit");
+
+	return surface;
+}
+
+inline Configuration::Atmosphere ConfigurationLoader::loadAtmosphere_(const std::map<std::string, std::string>& kv)
+{
+	Configuration::Atmosphere atmosphere;
+
+	std::string prefix = "atmosphere.";
+	// layering
+	{
+		std::string base = prefix + "layering.";
+
+		int n_edge = countArrayEntries_(kv, base + "z_edge");
+		for(int i = 0; i < n_edge; i ++)
+		{
+			atmosphere.z_edge.push_back(getRequiredDouble_(kv, base + "z_edge." + std::to_string(i)));
+		}
+
+		int n_center = countArrayEntries_(kv, base + "z_center");
+		for(int i = 0; i < n_center; i ++)
+		{
+			atmosphere.z_center.push_back(getRequiredDouble_(kv, base + "z_center." + std::to_string(i)));
+		}
+
+		atmosphere.z_unit = getOptionalString_(kv, base + "unit");
+	}
+	// temperature
+	{
+		std::string base = prefix + "temperature.";
+
+		atmosphere.is_same_temperature_layering_atmosphere = !hasKey_(kv, base + "table.0.1"); // tableがlayer*2でなければzのレイヤリングとは異なる
+		atmosphere.vertical_temperature_profile = parseEnum_(getOptionalString_(kv, base + "vertical_profile"), map_vertical_temperature_profile);
+		atmosphere.vertical_temperature_interpolation = parseEnum_(getOptionalString_(kv, base + "interpolation"), map_vertical_profile_interpolation);
+		
+		int n_tics = countArrayEntries_(kv, base + "table");
+
+		if(atmosphere.is_same_temperature_layering_atmosphere)
+		{
+			atmosphere.temperature_unit = {getOptionalString_(kv, base + "unit")};
+			
+			for(int i = 0; i < n_tics; i ++)
+			{
+				atmosphere.temperature_profile.push_back({getRequiredDouble_(kv, base + "table." + std::to_string(i))});
+			}
+
+		}
+		else
+		{
+			atmosphere.temperature_unit = {getOptionalString_(kv, base + "unit.0"), getOptionalString_(kv, base + "unit.1")};
+			
+			for(int i = 0; i < n_tics; i ++)
+			{
+				atmosphere.temperature_profile.push_back({getRequiredDouble_(kv, base + "table." + std::to_string(i) + ".0"), getRequiredDouble_(kv, base + "table." + std::to_string(i) + ".1")});
+			}
+		}
+	}
+	// pressure
+	{
+		std::string base = prefix + "pressure.";
+
+		atmosphere.is_same_pressure_layering_atmosphere = !hasKey_(kv, base + "table.0.1"); // tableがlayer*2でなければzのレイヤリングとは異なる
+		atmosphere.vertical_pressure_profile = parseEnum_(getOptionalString_(kv, base + "vertical_profile"), map_vertical_pressure_profile);
+		atmosphere.vertical_pressure_interpolation = parseEnum_(getOptionalString_(kv, base + "interpolation"), map_vertical_profile_interpolation);
+		
+		int n_tics = countArrayEntries_(kv, base + "table");
+
+		if(atmosphere.is_same_pressure_layering_atmosphere)
+		{
+			atmosphere.pressure_unit = {getOptionalString_(kv, base + "unit")};
+			
+			for(int i = 0; i < n_tics; i ++)
+			{
+				atmosphere.pressure_profile.push_back({getRequiredDouble_(kv, base + "table." + std::to_string(i))});
+			}
+
+		}
+		else
+		{
+			atmosphere.pressure_unit = {getOptionalString_(kv, base + "unit.0"), getOptionalString_(kv, base + "unit.1")};
+			
+			for(int i = 0; i < n_tics; i ++)
+			{
+				atmosphere.pressure_profile.push_back({getRequiredDouble_(kv, base + "table." + std::to_string(i) + ".0"), getRequiredDouble_(kv, base + "table." + std::to_string(i) + ".1")});
+			}
+		}
+	}
+	// number density
+	{
+		std::string base = prefix + "number_density.";
+
+		atmosphere.is_same_number_density_layering_atmosphere = !hasKey_(kv, base + "table.0.1"); // tableがlayer*2でなければzのレイヤリングとは異なる
+		atmosphere.vertical_number_density_profile = parseEnum_(getOptionalString_(kv, base + "vertical_profile"), map_vertical_number_density_profile);
+		atmosphere.vertical_number_density_interpolation = parseEnum_(getOptionalString_(kv, base + "interpolation"), map_vertical_profile_interpolation);
+		
+		int n_tics = countArrayEntries_(kv, base + "table");
+
+		if(atmosphere.is_same_number_density_layering_atmosphere)
+		{
+			atmosphere.number_density_unit = {getOptionalString_(kv, base + "unit")};
+			
+			for(int i = 0; i < n_tics; i ++)
+			{
+				atmosphere.number_density_profile.push_back({getRequiredDouble_(kv, base + "table." + std::to_string(i))});
+			}
+
+		}
+		else
+		{
+			atmosphere.number_density_unit = {getOptionalString_(kv, base + "unit.0"), getOptionalString_(kv, base + "unit.1")};
+			
+			for(int i = 0; i < n_tics; i ++)
+			{
+				atmosphere.number_density_profile.push_back({getRequiredDouble_(kv, base + "table." + std::to_string(i) + ".0"), getRequiredDouble_(kv, base + "table." + std::to_string(i) + ".1")});
+			}
+		}
+	}
+	// diluent
+	{
+		int n_diluent = countArrayEntries_(kv, prefix + "diluent.table");
+		for(int i = 0; i < n_diluent; i ++)
+		{
+			atmosphere.diluent_species.push_back(getRequiredString_(kv, prefix + "diluent.table." + std::to_string(i) + ".0"));
+			atmosphere.diluent_ratio.push_back(getRequiredDouble_(kv, prefix + "diluent.table." + std::to_string(i) + ".1"));
+		}
+	}
+	// species
+	{
+		int n_species = countArrayEntries_(kv, prefix + "species");
+		
+		atmosphere.species_configuration.clear();
+
+		for(int i = 0; i < n_species; i ++)
+		{
+			std::string base = prefix + "species." + std::to_string(i) + ".";
+
+			Configuration::SpeciesConfiguration s;
+			s.name = getOptionalString_(kv, base + "name");
+
+			s.is_same_layering_atmosphere = !hasKey_(kv, base + "vertical_profile.table.0.1");
+
+			if(s.is_same_layering_atmosphere)
+			{
+				s.unit_vertical_profile = {getOptionalString_(kv, base + "vertical_profile.unit")};
+				s.vertical_profile_interpolation = parseEnum_(getOptionalString_(kv, base + "vertical_profile.interpolation"), map_vertical_profile_interpolation);
+				
+				int n_tics = countArrayEntries_(kv, base + "vertical_profile.table");
+
+				for(int j = 0; j < n_tics; j ++)
+				{
+					s.vertical_profile.push_back({getRequiredDouble_(kv, base + "vertical_profile.table." + std::to_string(j))});
+				}
+			}
+			else
+			{
+				s.unit_vertical_profile = {getOptionalString_(kv, base + "vertical_profile.unit.0"), getOptionalString_(kv, base + "vertical_profile.unit.1")};
+				s.vertical_profile_interpolation = parseEnum_(getOptionalString_(kv, base + "vertical_profile.interpolation"), map_vertical_profile_interpolation);
+				
+				int n_tics = countArrayEntries_(kv, base + "vertical_profile.table");
+
+				for(int j = 0; j < n_tics; j ++)
+				{
+					s.vertical_profile.push_back({getRequiredDouble_(kv, base + "vertical_profile.table." + std::to_string(j) + ".0"), getRequiredDouble_(kv, base + "vertical_profile.table." + std::to_string(j) + ".1")});
+				}
+			}
+		
+			s.species_state = parseEnum_(getOptionalString_(kv, base + "state"), map_species_state);
+			s.species_type = parseEnum_(getOptionalString_(kv, base + "type"), map_species_type);
+			s.scatter_type = parseEnum_(getOptionalString_(kv, base + "scatter_type"), map_scatter_type);
+			s.scattering_cross_section_type = parseEnum_(getOptionalString_(kv, base + "scattering_cross_section.type"), map_cross_section_type);
+			s.absorption_cross_section_type = parseEnum_(getOptionalString_(kv, base + "absorption_cross_section.type"), map_cross_section_type);
+			
+			s.scattering_cross_section = getOptionalDouble_(kv, base + "scattering_cross_section.value");
+			s.scattering_cross_section_unit = getOptionalString_(kv, base + "scattering_cross_section.unit");
+			s.absorption_cross_section = getOptionalDouble_(kv, base + "absorption_cross_section.value");
+			s.absorption_cross_section_unit = getOptionalString_(kv, base + "absorption_cross_section.unit");
+
+			s.filename_scattering_cross_section = getOptionalString_(kv, base + "scattering_cross_section.file");
+			s.unit_input_scattering_spectral = getOptionalString_(kv, base + "scattering_cross_section.unit.0");
+			s.unit_input_scattering_cross_section = getOptionalString_(kv, base + "scattering_cross_section.unit.1");
+			s.filename_absorption_cross_section = getOptionalString_(kv, base + "absorption_cross_section.file");
+			s.unit_input_absorption_spectral = getOptionalString_(kv, base + "absorption_cross_section.unit.0");
+			s.unit_input_absorption_cross_section = getOptionalString_(kv, base + "absorption_cross_section.unit.1");
+
+			s.g_factor = getOptionalDouble_(kv, base + "g_factor");
+
+			s.filename_hitran = getOptionalString_(kv, base + "absorption_cross_section.file");
+			s.molecule_id = getOptionalInt_(kv, base + "molecule_id");
+			s.isotopologue_type = parseEnum_(getOptionalString_(kv, base + "isotopologue.type"), map_isotopologue_type);
+			s.isotopologue_abundance_type = parseEnum_(getOptionalString_(kv, base + "isotopologue.abundance"), map_isotopologue_abundance_type);
+			int n_iso = countArrayEntries_(kv, base + "isotopologues.local_id");
+			for(int j = 0; j < n_iso; j ++)
+			{
+				s.local_isotopologue_id.push_back(getRequiredInt_(kv, base + "isotopologues.local_id." + std::to_string(j)));
+			}
+
+			n_iso = countArrayEntries_(kv, base + "isotopologues.abundance");
+			for(int j = 0; j < n_iso; j ++)
+			{
+				s.abundance.push_back(getRequiredDouble_(kv, base + "isotopologues.abundance." + std::to_string(j)));
+			}
+
+			n_iso = countArrayEntries_(kv, base + "isotopologues.scalar");
+			for(int j = 0; j < n_iso; j ++)
+			{
+				s.scalar.push_back(getRequiredDouble_(kv, base + "isotopologues.scalar." + std::to_string(j)));
+			}
+
+			s.is_normalize = getOptionalBool_(kv, base + "isotopologues.normalize");
+
+			s.size_distribution = parseEnum_(getOptionalString_(kv, base + "size_distribution.function"), map_particle_size_distribution);
+			s.unit_input_radius = getOptionalString_(kv, base + "size_distribution.unit");
+
+			s.r = getOptionalDouble_(kv, base + "size_distribution.radius");
+			
+			s.count_radius = getOptionalInt_(kv, base + "size_distribution.n_particle_size_distribution");;
+
+			s.r_g = getOptionalDouble_(kv, base + "size_distribution.r_g");
+			s.sigma_g = getOptionalDouble_(kv, base + "size_distribution.sigma_g");
+			
+			s.r_mean = getOptionalDouble_(kv, base + "size_distribution.r_mean");
+			s.sigma = getOptionalDouble_(kv, base + "size_distribution.sigma");
+
+			s.width = getOptionalDouble_(kv, base + "size_distribution.width");
+
+			s.refractive_index_type = parseEnum_(getOptionalString_(kv, base + "refractive_index.type"), map_refractive_index_type);
+			
+			s.nr = getOptionalDouble_(kv, base + "refractive_index.value.0");
+			s.ni = getOptionalDouble_(kv, base + "refractive_index.value.1");
+
+			s.filename_refractive_index = getOptionalString_(kv, base + "refractive_index.file");
+			s.unit_input_refractive_index_spectral = getOptionalString_(kv, base + "refractive_index.unit");
+
+			int n_vert = countArrayEntries_(kv, base + "refractive_index.table");
+			for(int j = 0; j < n_vert; j ++)
+			{
+				double alt = getRequiredDouble_(kv, base + "refractive_index.table." + std::to_string(j) + ".0");
+				double nr = getRequiredDouble_(kv, base + "refractive_index.table." + std::to_string(j) + ".1");
+				double ni = getRequiredDouble_(kv, base + "refractive_index.table." + std::to_string(j) + ".2");
+				
+				s.refractive_index_vertical_profile.push_back({alt, nr, ni});
+			}
+
+			atmosphere.species_configuration.push_back(s);
+		}
+	}
+
+	return atmosphere;
+}
+
+inline Configuration::Instrument ConfigurationLoader::loadInstrument_(const std::map<std::string, std::string>& kv)
+{
+	Configuration::Instrument instrument;
+
+	std::string prefix = "simulation.instrument.";
+
+	instrument.instrument_function_type = parseEnum_(getOptionalString_(kv, prefix + "type"), map_instrument_function_type);
+	instrument.instrument_function_sigma = getOptionalDouble_(kv, prefix + "sigma");
+	instrument.instrument_function_center = getOptionalDouble_(kv, prefix + "center");
+	instrument.instrument_function_width = getOptionalDouble_(kv, prefix + "width");
+	instrument.instrument_sampling_count = getOptionalInt_(kv, prefix + "n_sample");
+	instrument.filename_instrument_function = getOptionalString_(kv, prefix + "file");
+	instrument.instrument_function_unit = getOptionalString_(kv, prefix + "unit");
+
+	int n_tics = countArrayEntries_(kv, prefix + "table");
+
+	for(int i = 0; i < n_tics; i ++)
+	{
+		instrument.instrument_function.push_back({getRequiredDouble_(kv, prefix + "table." + std::to_string(i) + ".0"), getRequiredDouble_(kv, prefix + "table." + std::to_string(i) + ".1")});
+	}
+
+	return instrument;
+}
+
+inline std::string ConfigurationLoader::getRequiredString_(const std::map<std::string, std::string>& kv, const std::string& key)
+{
+	auto it = kv.find(key);
+
+	if (it == kv.end())
+	{
+		throw std::runtime_error("Missing key: " + key);
+	}
+
+	return it -> second;
+}
+
+inline int ConfigurationLoader::getRequiredInt_(const std::map<std::string, std::string>& kv, const std::string& key)
+{
+	auto it = kv.find(key);
+
+	if (it == kv.end())
+	{
+		throw std::runtime_error("Missing key: " + key);
+	}
+
+	return std::stoi(it -> second);
+}
+
+inline double ConfigurationLoader::getRequiredDouble_(const std::map<std::string, std::string>& kv, const std::string& key)
+{
+	auto it = kv.find(key);
+
+	if (it == kv.end())
+	{
+		throw std::runtime_error("Missing key: " + key);
+	}
+
+	return std::stod(it -> second);
+}
+
+inline bool ConfigurationLoader::getRequiredBool_(const std::map<std::string, std::string>& kv, const std::string& key)
+{
+	auto it = kv.find(key);
+
+	if (it == kv.end())
+	{
+		throw std::runtime_error("Missing key: " + key);
+	}
+
+	std::string s = toLower(it->second);
+
+	if (s == "true"  || s == "yes" || s == "on")  return true;
+	if (s == "false" || s == "no"  || s == "off") return false;
+
+	// ここまで来たら値は存在するが真偽値として解釈不能
+	throw std::runtime_error("Invalid boolean value for key '" + key + "': '" + it->second + "'");
+}
+
+
+inline std::string ConfigurationLoader::getOptionalString_(const std::map<std::string, std::string>& kv, const std::string& key, const std::string& def)
+{
+	auto it = kv.find(key);
+
+	return (it == kv.end() ? def : it->second);
+}
+
+inline int ConfigurationLoader::getOptionalInt_(const std::map<std::string, std::string>& kv, const std::string& key, int def)
+{
+	auto it = kv.find(key);
+
+	return (it == kv.end() ? def : std::stoi(it->second));
+}
+
+inline double ConfigurationLoader::getOptionalDouble_(const std::map<std::string, std::string>& kv, const std::string& key, double def)
+{
+	auto it = kv.find(key);
+
+	return (it == kv.end() ? def : std::stod(it->second));
+}
+
+inline bool ConfigurationLoader::getOptionalBool_(const std::map<std::string, std::string>& kv, const std::string& key, bool def)
+{
+	auto it = kv.find(key);
+
+	if (it == kv.end())
+	{
+		return def;
+	}
+
+	std::string s = toLower(it->second);
+
+	if (s == "true"  || s == "yes" || s == "on")  return true;
+	if (s == "false" || s == "no"  || s == "off") return false;
+
+	// ここまで来たら値は存在するが真偽値として解釈不能
+	throw std::runtime_error("Invalid boolean value for key '" + key + "': '" + it->second + "'");
+}
+
+
+inline std::optional<std::string> ConfigurationLoader::getOptionalString_(const std::map<std::string, std::string>& kv, const std::string& key)
+{
+	std::optional<std::string> result;
+
+	auto it = kv.find(key);
+
+	if(it == kv.end())
+	{
+		result.reset();
+	}
+	else
+	{
+		result = it->second;
+	}
+
+	return result;
+}
+
+inline std::optional<int> ConfigurationLoader::getOptionalInt_(const std::map<std::string, std::string>& kv, const std::string& key)
+{
+	std::optional<int> result;
+
+	auto it = kv.find(key);
+
+	if(it == kv.end())
+	{
+		result.reset();
+	}
+	else
+	{
+		result = std::stoi(it->second);
+	}
+
+	return result;
+}
+
+inline std::optional<double> ConfigurationLoader::getOptionalDouble_(const std::map<std::string, std::string>& kv, const std::string& key)
+{
+	std::optional<double> result;
+
+	auto it = kv.find(key);
+
+	if(it == kv.end())
+	{
+		result.reset();
+	}
+	else
+	{
+		result = std::stod(it->second);
+	}
+
+	return result;
+}
+
+inline std::optional<bool> ConfigurationLoader::getOptionalBool_(const std::map<std::string, std::string>& kv, const std::string& key)
+{
+	std::optional<bool> result;
+
+	auto it = kv.find(key);
+
+	if(it == kv.end())
+	{
+		result.reset();
+	}
+	else
+	{
+		std::string s = toLower(it->second);
+
+		if (s == "true"  || s == "yes" || s == "on")
+		{
+			result = true;
+		}
+		else if (s == "false" || s == "no"  || s == "off")
+		{
+			result = false;
+		}
+		else
+		{
+			throw std::runtime_error("Invalid boolean value for key '" + key + "': '" + it->second + "'");
+		}
+	}
+
+	return result;
+}
+
+
+inline bool ConfigurationLoader::hasKey_(const std::map<std::string, std::string>& kv, const std::string& key)
+{
+    return kv.contains(key); // C++20
+    // return kv.find(key) != kv.end(); // C++17でもOK
+}
+
+inline int ConfigurationLoader::countArrayEntries_(const std::map<std::string, std::string>& kv, const std::string& prefix)
+{
+	const std::string pfx = prefix + ".";
+	std::vector<char> seen;  // seen[i] が 1 なら index=i が存在
+
+	for (auto& [key,val] : kv)
+	{
+		// "prefix." で始まらないものはスキップ
+		if (key.rfind(pfx, 0) != 0) continue;
+
+		// pfx の直後から、次の '.' まで or 末尾までを番号文字列として抜き出す
+		size_t pos1 = pfx.size();
+		size_t pos2 = key.find('.', pos1);
+		std::string idxstr = (pos2 == std::string::npos) ? key.substr(pos1) : key.substr(pos1, pos2 - pos1);
+		if (idxstr.empty())
+		{
+			continue;
+		}
+
+		// 純粋に数字だけかチェック
+		bool ok = true;
+		for (char c : idxstr)
+		{
+			if (!std::isdigit(static_cast<unsigned char>(c)))
+			{
+				ok = false;
+				break;
+			}
+		}
+
+		if (!ok)
+		{
+			continue;
+		}
+
+		int idx = std::stoi(idxstr);
+		if (idx < 0)
+		{
+			continue;
+		}
+
+		// seen を必要な長さまで拡張してマーク
+		if ((size_t)idx >= seen.size())
+		{
+			seen.resize(idx + 1, 0);
+		}
+
+		seen[idx] = 1;
+	}
+
+	// true (1) になっているものを数える
+	return std::count(seen.begin(), seen.end(), 1);
+}
+
+template<typename EnumT> inline std::optional<EnumT> ConfigurationLoader::parseEnum_(const std::optional<std::string>& s, const std::map<std::string, EnumT>& mapping)
+{
+	if (!s.has_value())
+	{
+		return std::nullopt;
+	}
+
+	// 2. 値を取り出して大文字に
+	std::string s_u = toUpper(s.value());
+
+	// 3. マップから探す
+	auto it = mapping.find(s_u);
+	if (it != mapping.end())
+	{
+		// 4. 見つかったらEnum値を返す
+		return it->second;
+	}
+
+	// 5. 見つからなければ例外を投げる
+	throw std::runtime_error("Unknown TypeName: " + s.value());
+}
+
+inline void Configuration::validateConfiguration(void)
+{
+	// Simulation
+	if(!simulation.simulation_name.has_value())
+	{
+		simulation.simulation_name = "untitiled";
+		std::cout << "[Configuration::validateConfiguration] Simulation name was not specified. Automatically set to 'untitled'." << std::endl;
+	}
+	if(!simulation.directory_name.has_value())
+	{
+		simulation.directory_name = "./";
+		if(simulation.directory_name.value()[simulation.directory_name.value().size() - 1] != '/')
+		{
+			simulation.directory_name = simulation.directory_name.value() + "/";
+		}
+		std::cout << "[Configuration::validateConfiguration] Working directroy was not specified. Automatically set to current directory." << std::endl;
+	}
+	if(!simulation.logfile_name.has_value())
+	{
+		simulation.logfile_name = "log.txt";
+		std::cout << "[Configuration::validateConfiguration] Log file name was not specified. Automatically set to 'log.txt'." << std::endl;
+	}
+	if(!simulation.result_name.has_value())
+	{
+		simulation.result_name = simulation.simulation_name.value() + ".nc";
+		std::cout << "[Configuration::validateConfiguration] Result file name was not specified. Automatically set to '" << simulation.simulation_name.value() << ".nc'." << std::endl;
+	}
+	if(!simulation.n_parallel.has_value())
+	{
+		simulation.n_parallel = 1;
+		std::cout << "[Configuration::validateConfiguration] n_parallel was not specified. Automatically set to 1." << std::endl;
+	}
+	if(!simulation.n_scattering_angle.has_value())
+	{
+		simulation.n_scattering_angle = 1001;
+		std::cout << "[Configuration::validateConfiguration] n_scattering_angle was not specified. Automatically set to 1001." << std::endl;
+	}
+	if(!simulation.tau_initial_layer.has_value())
+	{
+		simulation.tau_initial_layer = 1.0E-8;
+		std::cout << "[Configuration::validateConfiguration] tau_initial_layer was not specified. Automatically set to 1.0E-8." << std::endl;
+	}
+	if(!simulation.enable_atmospheric_emission.has_value())
+	{
+		simulation.enable_atmospheric_emission = false;
+		std::cout << "[Configuration::validateConfiguration] enable_atmospheric_emission was not specified. Automatically set to false." << std::endl;
+	}
+
+	//Geometry
+	if(!geometry.grid_type.has_value())
+	{
+		geometry.grid_type = GridType::GaussRadau;
+		std::cout << "[Configuration::validateConfiguration] grid_type was not specified. Automatically set to Gauss-Radau." << std::endl;
+	}
+	if(!geometry.n_theta.has_value())
+	{
+		throw std::runtime_error("[Configuration::validateConfiguration] n_theta was not specified.");
+	}
+	if(!geometry.n_phi.has_value() && !geometry.n_mode.has_value())
+	{
+		std::cout << "[Configuration::validateConfiguration] n_phi and n_mode were not specified. Automatically set." << std::endl;
+	}
+
+	//DeltaM
+	if(!delta_m.delta_approximation_type.has_value())
+	{
+		delta_m.delta_approximation_type = DeltaApproximationType::Disable;
+		std::cout << "[Configuration::validateConfiguration] delta_approximation_type was not specified. Automatically set to disable." << std::endl;
+	}
+	else 
+	{
+		// to be fixed
+		if(!delta_m.n_icss_sample.has_value())
+		{
+			delta_m.n_icss_sample = 3;
+			std::cout << "[Configuration::validateConfiguration] n_icss_sample was not specified. Automatically set to 3." << std::endl;
+		}
+	}
+
+	// SpectralCoordinate
+	// 有効な組み合わせ
+	// monochrome
+	// spectrum
+	// table (あまり使わないほうが良い)
+	// bandpass + instrument (bandpass filter)
+	// spectrum + instrument
+	if(!spectral_coordinate.spectral_coordinate_dimension.has_value() && !spectral_coordinate.unit.has_value())
+	{
+		throw std::runtime_error("[Configuration::validateConfiguration] Spectral dimension not automatically determined. Specify at least dimension or unit.");
+	}
+	else if(!spectral_coordinate.spectral_coordinate_dimension.has_value() && spectral_coordinate.unit.has_value())
+	{
+		if(getUnitInfo(spectral_coordinate.unit.value()).dim == UnitDim::Length)
+		{
+			spectral_coordinate.spectral_coordinate_dimension = SpectralCoordinateDimenstion::Wavelength;
+			std::cout << "[Configuration::validateConfiguration] Spectral dimension was not specified. Automatically set to wavelength." << std::endl;
+		}
+		else if(getUnitInfo(spectral_coordinate.unit.value()).dim == UnitDim::Wavenumber)
+		{
+			spectral_coordinate.spectral_coordinate_dimension = SpectralCoordinateDimenstion::Wavenumber;
+			std::cout << "[Configuration::validateConfiguration] Spectral dimension was not specified. Automatically set to wavenumber." << std::endl;
+		}
+	}
+	else if(spectral_coordinate.spectral_coordinate_dimension.has_value() && !spectral_coordinate.unit.has_value())
+	{
+		if(spectral_coordinate.spectral_coordinate_dimension == SpectralCoordinateDimenstion::Wavenumber)
+		{
+			spectral_coordinate.unit = "m-1";
+			std::cout << "[Configuration::validateConfiguration] Spectral unit was not specified. Automatically set to m-1." << std::endl;
+		}
+		if(spectral_coordinate.spectral_coordinate_dimension == SpectralCoordinateDimenstion::Wavelength)
+		{
+			spectral_coordinate.unit = "m";
+			std::cout << "[Configuration::validateConfiguration] Spectral unit was not specified. Automatically set to m." << std::endl;
+		}
+	}
+	if(!spectral_coordinate.spectral_coordinate_type.has_value())
+	{
+		throw std::runtime_error("[Configuration::validateConfiguration] Spectral coordinate type was not specified.");
+	}
+	else if(spectral_coordinate.spectral_coordinate_type.value() == SpectralCoordinateType::Monochrome)
+	{
+		if(!spectral_coordinate.mono.has_value())
+		{
+			throw std::runtime_error("[Configuration::validateConfiguration] Wavenumber or wavelength were not specified for monochrome calculation.");
+		}
+	}
+	else if(spectral_coordinate.spectral_coordinate_type.value() == SpectralCoordinateType::Table)
+	{
+		if(spectral_coordinate.specral_grid.empty())
+		{
+			throw std::runtime_error("[Configuration::validateConfiguration] Wavenumber or wavelength tables were not specified for spectrum calculation.");
+		}
+	}
+	else if(spectral_coordinate.spectral_coordinate_type.value() == SpectralCoordinateType::Spectrum)
+	{
+		if((!spectral_coordinate.min.has_value() || !spectral_coordinate.max.has_value() || (!spectral_coordinate.n_spectral.has_value() && !spectral_coordinate.increment.has_value())))
+		{
+			if(!spectral_coordinate.n_spectral.has_value() && !spectral_coordinate.increment.has_value())
+			{
+				throw std::runtime_error("[Configuration::validateConfiguration] Spectral increment was over specified.");
+			}
+			if(spectral_coordinate.specral_grid.empty())
+			{
+				throw std::runtime_error("[Configuration::validateConfiguration] Spectral grid was not specified for spectrum calculation.");
+			}
+		}
+		else
+		{
+			if(!spectral_coordinate.specral_grid.empty())
+			{
+				throw std::runtime_error("[Configuration::validateConfiguration] Spectral grid was overspecified.");
+			}
+			else
+			{
+				if(spectral_coordinate.min.value() >= spectral_coordinate.max.value())
+				{
+					throw std::runtime_error("[Configuration::validateConfiguration] Spectral range error (min >= max).");
+				}
+				else if(!spectral_coordinate.n_spectral.has_value())
+				{
+					if(spectral_coordinate.max.value() - spectral_coordinate.max.value() > spectral_coordinate.increment.value())
+					{
+						throw std::runtime_error("[Configuration::validateConfiguration] Spectral range error (width > increment).");
+					}
+				}
+				else if(!spectral_coordinate.increment.has_value())
+				{
+					if(spectral_coordinate.n_spectral < 2)
+					{
+						spectral_coordinate.n_spectral = 2;
+						std::cout << "[Configuration::validateConfiguration] n_spectral was not specified. Automatically set to 2." << std::endl;
+					}
+				}
+			}
+		}
+	}
+	else if(spectral_coordinate.spectral_coordinate_type.value() == SpectralCoordinateType::Bandpass)
+	{
+		if(!instrument.instrument_function_type.has_value() == false)
+		{
+			throw std::runtime_error("[Configuration::validateConfiguration] Instrument was not specified for bandpass calculation.");
+		}
+		else 
+		{
+			if(!spectral_coordinate.min.has_value() || !spectral_coordinate.max.has_value())
+			{
+				throw std::runtime_error("[Configuration::validateConfiguration] Spectral range was not specified for bandpass calculation.");
+			}
+			if(spectral_coordinate.min.value() >= spectral_coordinate.max.value())
+			{
+				throw std::runtime_error("[Configuration::validateConfiguration] Spectral range error (min >= max).");
+			}
+		}
+	}
+
+	// Instrument
+	if(instrument.instrument_function_type.has_value())
+	{		
+		if(!instrument.instrument_function_unit.has_value())
+		{
+			instrument.instrument_function_unit = spectral_coordinate.unit.value();
+			std::cout << "[Configuration::validateConfiguration] Instrument function unit was automatically set to " << spectral_coordinate.unit.value() << "." << std::endl;
+		}
+		if(!instrument.instrument_sampling_count.has_value())
+		{
+			instrument.instrument_sampling_count = 3;
+			std::cout << "[Configuration::validateConfiguration] Instrument sampling cout was automatically set to 3." << std::endl;
+		}
+		
+		if(spectral_coordinate.spectral_coordinate_type.value() == SpectralCoordinateType::Spectrum)
+		{
+			if(instrument.instrument_function_type.value() == InstrumentFunctionType::Gauss)
+			{
+				if(!instrument.instrument_function_sigma.has_value())
+				{
+					throw std::runtime_error("[Configuration::validateConfiguration] Gaussian sigma was not specified for instrument function.");
+				}
+				if(instrument.instrument_function_width.has_value())
+				{
+					instrument.instrument_function_width.reset();
+					std::cout << "[Configuration::validateConfiguration] Rectangular width was ignored for gaussian spectrum instrument function." << std::endl;
+				}
+				if(instrument.instrument_function_center.has_value())
+				{
+					instrument.instrument_function_center.reset();
+					std::cout << "[Configuration::validateConfiguration] Gaussian center was ignored for spectrum instrument function." << std::endl;
+				}
+			}
+			else if(instrument.instrument_function_type.value() == InstrumentFunctionType::Rectangle)
+			{
+				if(!instrument.instrument_function_width.has_value())
+				{
+					throw std::runtime_error("[Configuration::validateConfiguration] Rectangular width was not specified for instrument function.");
+				}
+				if(instrument.instrument_function_sigma.has_value())
+				{
+					instrument.instrument_function_width.reset();
+					std::cout << "[Configuration::validateConfiguration] Gaussian sigma was ignored for rectangular spectrum instrument function." << std::endl;
+				}
+				if(instrument.instrument_function_center.has_value())
+				{
+					instrument.instrument_function_center.reset();
+					std::cout << "[Configuration::validateConfiguration] Rectangular center was ignored for spectrum instrument function." << std::endl;
+				}
+			}
+			else if(instrument.instrument_function_type.value() == InstrumentFunctionType::Table)
+			{
+				throw std::runtime_error("[Configuration::validateConfiguration] Table was not currently supported for spectrum instrument function.");
+			}
+			else if(instrument.instrument_function_type.value() == InstrumentFunctionType::External)
+			{
+				throw std::runtime_error("[Configuration::validateConfiguration] External was not currently supported for spectrum instrument function.");
+			}
+		}
+		else if(spectral_coordinate.spectral_coordinate_type.value() == SpectralCoordinateType::Bandpass)
+		{
+			if(instrument.instrument_function_type.value() == InstrumentFunctionType::Gauss)
+			{
+				if(!instrument.instrument_function_sigma.has_value())
+				{
+					throw std::runtime_error("[Configuration::validateConfiguration] Gaussian sigma was not specified for instrument function.");
+				}
+				if(instrument.instrument_function_center.has_value())
+				{
+					throw std::runtime_error("[Configuration::validateConfiguration] Gaussian center was not specified for instrument function.");
+				}
+			}
+			else if(instrument.instrument_function_type.value() == InstrumentFunctionType::Rectangle)
+			{
+				if(!instrument.instrument_function_width.has_value())
+				{
+					throw std::runtime_error("[Configuration::validateConfiguration] Rectangular width was not specified for instrument function.");
+				}
+				if(instrument.instrument_function_center.has_value())
+				{
+					throw std::runtime_error("[Configuration::validateConfiguration] Rectangular center was not specified for instrument function.");
+				}
+			}
+			else if(instrument.instrument_function_type.value() == InstrumentFunctionType::Table)
+			{
+				if(instrument.instrument_function.empty())
+				{
+					throw std::runtime_error("[Configuration::validateConfiguration] Table of instrument function was not specified.");
+				}
+			}
+			else if(instrument.instrument_function_type.value() == InstrumentFunctionType::External)
+			{
+				if(!instrument.filename_instrument_function.has_value())
+				{
+					throw std::runtime_error("[Configuration::validateConfiguration] Filename of instrument function was not specified.");
+				}
+			}
+		}
+	}
+
+	// Surface
+	if(!surface.type.has_value())
+	{
+		surface.type = SurfaceType::NoSurface;
+		std::cout << "[Configuration::validateConfiguration] surface_type was not specified. Automatically set to no_surface." << std::endl;
+	}
+	else if(surface.type.value() == SurfaceType::Lambert)
+	{
+		if(!surface.albedo.has_value())
+		{
+			throw std::runtime_error("[Configuration::validateConfiguration] surface_albedo was not specified.");
+		}
+		if(!surface.temperature.has_value())
+		{
+			throw std::runtime_error("[Configuration::validateConfiguration] surface_temperature was not specified.");
+		}
+		if(!surface.unit.has_value())
+		{
+			surface.unit = "K";
+			std::cout << "[Configuration::validateConfiguration] surface_temperature unit was not specified. Automatically set to K." << std::endl;
+		}
+	}
+
+	// Atmosphere-layering
+	if(atmosphere.z_center.empty() && atmosphere.z_edge.empty())
+	{
+		throw std::runtime_error("[Configuration::validateConfiguration] Layering was not specified.");
+	}
+	else if(!atmosphere.z_center.empty() && !atmosphere.z_edge.empty())
+	{
+		throw std::runtime_error("[Configuration::validateConfiguration] Layering was overspecified.");
+	}
+	if(!atmosphere.z_unit.has_value())
+	{
+		atmosphere.z_unit = "m";
+		std::cout << "[Configuration::validateConfiguration] z_unit was not specified. Automatically set to m." << std::endl;
+	}
+	// Atmosphere-temperature
+	if(!atmosphere.vertical_temperature_profile.has_value())
+	{
+		throw std::runtime_error("[Configuration::validateConfiguration] Temperature profile was not specified.");
+	}
+	else if(atmosphere.vertical_temperature_profile.value() == VerticalTemperatureProfile::Table)
+	{
+		if(atmosphere.temperature_profile.empty())
+		{
+			throw std::runtime_error("[Configuration::validateConfiguration] Temperature profile was not specified.");
+		}
+		
+		if(!atmosphere.vertical_temperature_interpolation.has_value())
+		{
+			atmosphere.vertical_temperature_interpolation = VerticalProfileInterpolation::Linear;
+			std::cout << "[Configuration::validateConfiguration] Temperature interpolation was not specified. Automatically set to linear." << std::endl;
+		}
+		
+		if(atmosphere.is_same_temperature_layering_atmosphere == true)
+		{
+			if(atmosphere.temperature_unit.size() == 0)
+			{
+				atmosphere.temperature_unit = {atmosphere.z_unit.value(), "K"};
+				std::cout << "[Configuration::validateConfiguration] Temperature unit was not specified. Automatically set to K." << std::endl;
+			}
+			else if(atmosphere.temperature_unit.size() == 1)
+			{
+				if(getUnitInfo(atmosphere.temperature_unit[0].value()).dim == UnitDim::Temperature != "K")
+				{
+					throw std::runtime_error("[Configuration::validateConfiguration] Invalid temperature unit dimension.");
+				}
+			}
+			else
+			{
+				throw std::runtime_error("[Configuration::validateConfiguration] Temperature profile unit was overspecified.");
+			}
+			if(!atmosphere.z_center.empty())
+			{
+				if(atmosphere.z_center.size() != atmosphere.temperature_profile.size())
+				{
+					throw std::runtime_error("[Configuration::validateConfiguration] Temperature layering does not match to atmosphere.");
+				}
+			}
+			else if(!atmosphere.z_edge.empty())
+			{
+				if(atmosphere.z_edge.size() - 1 != atmosphere.temperature_profile.size())
+				{
+					throw std::runtime_error("[Configuration::validateConfiguration] Temperature layering does not match to atmosphere.");
+				}
+			}
+		}
+		else
+		{
+			if(atmosphere.temperature_unit.size() == 0)
+			{
+				atmosphere.temperature_unit = {atmosphere.z_unit.value(), "K"};
+				std::cout << "[Configuration::validateConfiguration] (z, temperature) unit was not specified. Automatically set to (" << atmosphere.z_unit.value() << ", K)." << std::endl;
+			}
+			else if(atmosphere.temperature_unit.size() == 1)
+			{
+				if(getUnitInfo(atmosphere.temperature_unit[0].value()).dim == UnitDim::Length)
+				{
+					atmosphere.temperature_unit.push_back(std::optional<std::string>("K"));
+					std::cout << "[Configuration::validateConfiguration] Temperature unit was not specified. Automatically set to K." << std::endl;
+				}
+				else if(getUnitInfo(atmosphere.temperature_unit[0].value()).dim == UnitDim::Temperature)
+				{
+					atmosphere.temperature_unit.insert(atmosphere.temperature_unit.begin(), atmosphere.z_unit);
+					std::cout << "[Configuration::validateConfiguration] z_unit for temperature was not specified. Automatically set to m." << std::endl;
+				}
+			}
+		}
+	}
+	else if(atmosphere.vertical_temperature_profile.value() == VerticalTemperatureProfile::VIRA_EQUATOR || atmosphere.vertical_temperature_profile.value() == VerticalTemperatureProfile::VIRA_45 || atmosphere.vertical_temperature_profile.value() == VerticalTemperatureProfile::VIRA_60)
+	{
+		atmosphere.temperature_unit = {"km", "K"};
+		std::cout << "[Configuration::validateConfiguration] (z, temperature) unit automatically set (km, K) for VIRA." << std::endl;
+
+		if(!atmosphere.vertical_temperature_interpolation.has_value())
+		{
+			atmosphere.vertical_temperature_interpolation = VerticalProfileInterpolation::Linear;
+			std::cout << "[Configuration::validateConfiguration] Temperature interpolation was not specified. Automatically set to linear." << std::endl;
+		}
+	}
+	else if(atmosphere.vertical_temperature_profile.value() == VerticalTemperatureProfile::External)
+	{
+		throw std::runtime_error("[Configuration::validateConfiguration] Temperature profile 'External' is not supported currently.");
+	}
+	// Atmosphere-pressure
+	if(!atmosphere.vertical_pressure_profile.has_value())
+	{
+		throw std::runtime_error("[Configuration::validateConfiguration] Pressure profile was not specified.");
+	}
+	else if(atmosphere.vertical_pressure_profile.value() == VerticalPressureProfile::Table)
+	{
+		if(atmosphere.pressure_profile.empty())
+		{
+			throw std::runtime_error("[Configuration::validateConfiguration] Pressure profile was not specified.");
+		}
+		else if(!atmosphere.vertical_pressure_interpolation.has_value())
+		{
+			atmosphere.vertical_pressure_interpolation = VerticalProfileInterpolation::Exponential;
+			std::cout << "[Configuration::validateConfiguration] Pressure interpolation was not specified. Automatically set to exponential." << std::endl;
+		}
+		else if(atmosphere.pressure_unit.size() == 0)
+		{
+			atmosphere.pressure_unit = {atmosphere.z_unit.value(), "Pa"};
+			std::cout << "[Configuration::validateConfiguration] (z, pressure) unit was not specified. Automatically set to (" << atmosphere.z_unit.value() << ", Pa)." << std::endl;
+		}
+		else if(atmosphere.pressure_unit.size() == 1)
+		{
+			if(getUnitInfo(atmosphere.pressure_unit[0].value()).dim == UnitDim::Length)
+			{
+				atmosphere.pressure_unit.push_back(std::optional<std::string>("Pa"));
+				std::cout << "[Configuration::validateConfiguration] Pressure unit was not specified. Automatically set to Pa." << std::endl;
+			}
+			else if(getUnitInfo(atmosphere.pressure_unit[0].value()).dim == UnitDim::Pressure)
+			{
+				atmosphere.pressure_unit.insert(atmosphere.pressure_unit.begin(), atmosphere.z_unit);
+				std::cout << "[Configuration::validateConfiguration] z_unit for pressure was not specified. Automatically set to m." << std::endl;
+			}
+		}
+	}
+	else if(atmosphere.vertical_pressure_profile.value() == VerticalPressureProfile::VIRA_EQUATOR || atmosphere.vertical_pressure_profile.value() == VerticalPressureProfile::VIRA_45 || atmosphere.vertical_pressure_profile.value() == VerticalPressureProfile::VIRA_60)
+	{
+		atmosphere.temperature_unit = {"km", "bar"};
+		std::cout << "[Configuration::validateConfiguration] (z, pressure) unit automatically set (km, bar) for VIRA." << std::endl;
+
+		if(!atmosphere.vertical_pressure_interpolation.has_value())
+		{
+			atmosphere.vertical_pressure_interpolation = VerticalProfileInterpolation::Exponential;
+			std::cout << "[Configuration::validateConfiguration] Pressure interpolation was not specified. Automatically set to exponential." << std::endl;
+		}
+	}
+	else if(atmosphere.vertical_pressure_profile.value() == VerticalPressureProfile::Hydrostatic)
+	{
+		throw std::runtime_error("[Configuration::validateConfiguration] Pressure profile 'Hydrostatic' is not supported currently.");
+	}
+	else if(atmosphere.vertical_pressure_profile.value() == VerticalPressureProfile::External)
+	{
+		throw std::runtime_error("[Configuration::validateConfiguration] Pressure profile 'External' is not supported currently.");
+	}
+	// Atmosphere-number_density
+	if(!atmosphere.vertical_number_density_profile.has_value())
+	{
+		throw std::runtime_error("[Configuration::validateConfiguration] Number density profile was not specified.");
+	}
+	else if(atmosphere.vertical_number_density_profile.value() == VerticalNumberDensityProfile::Table)
+	{
+		if(atmosphere.number_density_profile.empty())
+		{
+			throw std::runtime_error("[Configuration::validateConfiguration] Number density profile was not specified.");
+		}
+		else if(!atmosphere.vertical_number_density_interpolation.has_value())
+		{
+			atmosphere.vertical_number_density_interpolation = VerticalProfileInterpolation::Exponential;
+			std::cout << "[Configuration::validateConfiguration] Number density interpolation was not specified. Automatically set to exponential." << std::endl;
+		}
+		else if(atmosphere.number_density_unit.size() == 0)
+		{
+			atmosphere.number_density_unit = {atmosphere.z_unit.value(), "m-3"};
+			std::cout << "[Configuration::validateConfiguration] (z, number_density) unit was not specified. Automatically set to (" << atmosphere.z_unit.value() << ", m-3)." << std::endl;
+		}
+		else if(atmosphere.number_density_unit.size() == 1)
+		{
+			if(getUnitInfo(atmosphere.number_density_unit[0].value()).dim == UnitDim::Length)
+			{
+				atmosphere.number_density_unit.push_back(std::optional<std::string>("m-3"));
+				std::cout << "[Configuration::validateConfiguration] Number density unit was not specified. Automatically set to m-3." << std::endl;
+			}
+			else if(getUnitInfo(atmosphere.number_density_unit[0].value()).dim == UnitDim::NumberDensity)
+			{
+				atmosphere.number_density_unit.insert(atmosphere.number_density_unit.begin(), atmosphere.z_unit);
+				std::cout << "[Configuration::validateConfiguration] z_unit for number_density was not specified. Automatically set to m." << std::endl;
+			}
+		}
+	}
+	else if(atmosphere.vertical_number_density_profile.value() == VerticalNumberDensityProfile::VIRA_EQUATOR || atmosphere.vertical_number_density_profile.value() == VerticalNumberDensityProfile::VIRA_45 || atmosphere.vertical_number_density_profile.value() == VerticalNumberDensityProfile::VIRA_60)
+	{
+		atmosphere.number_density_unit = {"km", "m-3"};
+		std::cout << "[Configuration::validateConfiguration] (z, number_density) unit automatically set (km, m-3) for VIRA." << std::endl;
+
+		if(!atmosphere.vertical_number_density_interpolation.has_value())
+		{
+			atmosphere.vertical_number_density_interpolation = VerticalProfileInterpolation::Exponential;
+			std::cout << "[Configuration::validateConfiguration] Number density interpolation was not specified. Automatically set to exponential." << std::endl;
+		}
+	}
+	else if(atmosphere.vertical_number_density_profile.value() == VerticalNumberDensityProfile::External)
+	{
+		throw std::runtime_error("[Configuration::validateConfiguration] Number density profile 'External' is not supported currently.");
+	}
+
+	//species
+	for(int i = 0; i < atmosphere.species_configuration.size(); ++i)
+	{
+		;
+	}
+
+	//diluent
+	return;
+}
+
+
+// inline std::vector<std::vector<double>> ConfigurationLoader::importWindowFunction_(const std::string& filename, const std::string& unit) const
+// {
+// 	std::ifstream input(filename);
+// 	std::string str;
+
+// 	std::vector<std::vector<double>> window_function;
+
+// 	UnitInfo unit_info = getUnitInfo(unit);
+
+// 	while(std::getline(input, str))
+// 	{
+// 		if(str[0] != '#' && str.size() > 3)
+// 		{
+// 			auto data = splitString(str, ',');
+// 			std::vector<double> temp = {std::stod(data[0]) * unit_info.to_si, std::stod(data[1])};
+// 			window_function.push_back(temp);
+// 		}
+// 	}
+
+// 	std::sort(window_function.begin(), window_function.end(),[](std::vector<double>& v1, std::vector<double>& v2) {return v1[0] < v2[0];});
+
+// 	return window_function;
+// }
+
+};

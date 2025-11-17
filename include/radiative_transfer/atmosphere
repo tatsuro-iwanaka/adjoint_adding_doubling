@@ -1,0 +1,2337 @@
+#pragma once
+
+#include<complex>
+#include<filesystem>
+#include<fstream>
+#include<iomanip>
+#include<cmath>
+#include<vector>
+#include<string>
+#include<algorithm>
+#include<stdexcept>
+
+#include<Eigen/Dense>
+#include<omp.h>
+
+#include"types"
+#include"constants"
+#include"utilities"
+#include"geometry"
+#include"hitran"
+
+namespace radiative_transfer
+{
+
+void normalizeScatteringPhaseFunction(std::vector<std::vector<double>>&);
+std::vector<std::vector<double>> importCrossSection(std::string);
+std::vector<std::vector<double>> importSizeDistribution(std::string);
+std::vector<std::vector<double>> importScatteringPhaseFunction(std::string);
+std::vector<std::vector<double>> importRefractiveIndex(std::string);
+void computeMieScattering(int, double, double, std::complex<double>, double&, double&, double&, std::vector<std::vector<double>>&);
+void computeMieScattering(int, const std::vector<std::vector<double>>&, int, double, std::complex<double>, double&, double&, double&, std::vector<std::vector<double>>&);
+void computeMieScatteringLogNormal(int, int, double, double, double, std::complex<double>, double&, double&, double&, std::vector<std::vector<double>>&);
+std::vector<std::vector<double>> generateLogNormalSizeDistribution(double, double, int);
+std::vector<std::vector<double>> computeRayleighScatteringFunction(int);
+double planck_source(double, double, double);
+double computeAsymmetryParameter(const std::vector<std::vector<double>>&);
+
+inline void Layer::normalizeScatteringPhaseFunction(void)
+{
+	std::vector<std::vector<double>> phase_function_theta(scattering_phase_function.size());
+
+	for(int i = 0; i < scattering_phase_function.size(); i ++)
+	{
+		phase_function_theta[i] = {scattering_phase_function[i][0], scattering_phase_function[i][1] * 2.0 * PI * std::sin(scattering_phase_function[i][0])};
+	}
+	//std::cout << phase_function_theta.size() << std::endl;
+	double sum = computeSimpsonIntegration(phase_function_theta) / (4.0 * PI);
+
+	for(int i = 0; i < scattering_phase_function.size(); i ++)
+	{
+		scattering_phase_function[i][1] /= sum;
+	}
+	//normalizeScatteringPhaseFunction(scattering_phase_function);
+
+	return;
+}
+
+// f: scattering phase function, scattering_angle: scattering angle [0, pi]
+inline double RadiativeTransfer::computePhaseFunction(const std::vector<std::vector<double>>& f, double scattering_angle)
+{
+	double theta_min = f[0][0];
+	double theta_max = f[f.size() - 1][0];
+	double dtheta = std::abs(f[1][0] - f[0][0]);
+
+	int ntheta = (scattering_angle - theta_min) / dtheta;
+	double result;
+
+	if(ntheta == f.size() - 1)
+	{
+		result = f[ntheta][1];
+	}
+	else if(ntheta == 0)
+	{
+		result = f[0][1];
+	}
+	else
+	{
+		result = (f[ntheta][1] * (f[ntheta + 1][0] - scattering_angle) + f[ntheta + 1][1] * (scattering_angle - f[ntheta][0])) / (f[ntheta + 1][0] - f[ntheta][0]);
+	}
+	
+	return result;
+}
+
+inline double Species::computeMixingRatio(double z)
+{
+	double mr = 0.0;
+
+	for(int i = 0; i < vertical_profile.size() - 1; i ++)
+	{
+		if(vertical_profile[i][0] <= z && z <= vertical_profile[i + 1][0])
+		{
+			if(vertical_profile_interpolation == VerticalProfileInterpolation::Linear)
+			{
+				double r = (z - vertical_profile[i][0]) / (vertical_profile[i + 1][0] - vertical_profile[i][0]);
+				return vertical_profile[i][1] * (1.0 - r) + r * vertical_profile[i + 1][1];
+			}
+			else if(vertical_profile_interpolation == VerticalProfileInterpolation::Exponential)
+			{
+				double H = -(vertical_profile[i + 1][0] - vertical_profile[i][0]) / (std::log(vertical_profile[i + 1][1]) - std::log(vertical_profile[i][1]));
+				return vertical_profile[i][1] * std::exp(-(z - vertical_profile[i][0]) / H);
+			}
+		}
+	}
+
+	return mr;
+}
+
+inline double Species::computeNumberDensity(double z)
+{
+	double mr = 0.0;
+
+	for(int i = 0; i < vertical_profile.size() - 1; i ++)
+	{
+		if(vertical_profile[i][0] <= z && z <= vertical_profile[i + 1][0])
+		{
+			if(vertical_profile_interpolation == VerticalProfileInterpolation::Linear)
+			{
+				double r = (z - vertical_profile[i][0]) / (vertical_profile[i + 1][0] - vertical_profile[i][0]);
+				return vertical_profile[i][1] * (1.0 - r) + r * vertical_profile[i + 1][1];
+			}
+			else if(vertical_profile_interpolation == VerticalProfileInterpolation::Exponential)
+			{
+				double H = -(vertical_profile[i + 1][0] - vertical_profile[i][0]) / (std::log(vertical_profile[i + 1][1]) - std::log(vertical_profile[i][1]));
+				return vertical_profile[i][1] * std::exp(-(z - vertical_profile[i][0]) / H);
+			}
+		}
+	}
+
+	return mr;
+}
+
+inline std::complex<double> Species::computeRefractiveIndex(double z)
+{
+	std::complex<double> mr = {1.5, 0.0};
+
+	for(int i = 0; i < refractive_index_vertical_profile.size() - 1; i ++)
+	{
+		if(refractive_index_vertical_profile[i][0] <= z && z <= refractive_index_vertical_profile[i + 1][0])
+		{
+			if(vertical_profile_interpolation == VerticalProfileInterpolation::Linear)
+			{
+				double r = (z - refractive_index_vertical_profile[i][0]) / (refractive_index_vertical_profile[i + 1][0] - refractive_index_vertical_profile[i][0]);
+				double nr_int = refractive_index_vertical_profile[i][1] * (1.0 - r) + r * refractive_index_vertical_profile[i + 1][1];
+				double ni_int = refractive_index_vertical_profile[i][2] * (1.0 - r) + r * refractive_index_vertical_profile[i + 1][2];
+				return std::complex<double>{nr_int, ni_int};
+			}
+			else if(vertical_profile_interpolation == VerticalProfileInterpolation::Exponential)
+			{
+				double H = -(refractive_index_vertical_profile[i + 1][0] - refractive_index_vertical_profile[i][0]) / (std::log(refractive_index_vertical_profile[i + 1][1]) - std::log(refractive_index_vertical_profile[i][1]));
+				double nr_int = refractive_index_vertical_profile[i][1] * std::exp(-(z - refractive_index_vertical_profile[i][0]) / H);
+				double ni_int = refractive_index_vertical_profile[i][2] * std::exp(-(z - refractive_index_vertical_profile[i][0]) / H);
+				return std::complex<double>{nr_int, ni_int};
+			}
+		}
+	}
+
+	return mr;
+}
+
+inline void normalizeScatteringPhaseFunction(std::vector<std::vector<double>> &f)
+{
+	std::vector<std::vector<double>> phase_function_theta(f.size());
+
+	for(int i = 0; i < f.size(); i ++)
+	{
+		phase_function_theta[i] = {f[i][0], f[i][1] * 2.0 * PI * std::sin(f[i][0])};
+	}
+
+	double sum = computeSimpsonIntegration(phase_function_theta) / (4.0 * PI);
+
+	for(int i = 0; i < f.size(); i ++)
+	{
+		f[i][1] /= sum;
+	}
+
+	return;
+}
+
+inline std::vector<std::vector<double>> importCrossSection(std::string filename)
+{
+	std::ifstream input(filename);
+	std::string str;
+
+	std::vector<std::vector<double>> spectrum;
+
+	while(std::getline(input, str))
+	{
+		//std::cout << str << std::endl;
+		if(str[0] != '#' && str.size() > 3)
+		{
+			auto data = splitString(str, ',');
+			std::vector<double> temp = {std::stod(data[0]), std::stod(data[1])};
+			spectrum.push_back(temp);
+		}
+	}
+
+	std::sort(spectrum.begin(), spectrum.end(),[](std::vector<double>& v1, std::vector<double>& v2) {return v1[0] < v2[0];});
+
+	return spectrum;
+}
+
+inline std::vector<std::vector<double>> importSizeDistribution(std::string filename)
+{
+	std::ifstream input(filename);
+	std::string str;
+
+	std::vector<std::vector<double>> size_distribution;
+
+	while(std::getline(input, str))
+	{
+		if(str[0] != '#' && str.size() > 3)
+		{
+			auto data = splitString(str, ',');
+			std::vector<double> temp = {std::stod(data[0]), std::stod(data[1])};
+			size_distribution.push_back(temp);
+		}
+	}
+
+	std::sort(size_distribution.begin(), size_distribution.end(),[](std::vector<double>& v1, std::vector<double>& v2) {return v1[0] < v2[0];});
+
+	return size_distribution;
+}
+
+inline std::vector<std::vector<double>> importScatteringPhaseFunction(std::string filename)
+{
+	std::ifstream input(filename);
+	std::string str;
+
+	std::vector<std::vector<double>> phase_function;
+
+	while(std::getline(input, str))
+	{
+		if(str[0] != '#' && str.size() > 3)
+		{
+			auto data = splitString(str, ',');
+			std::vector<double> temp = {std::stod(data[0]), std::stod(data[1])};
+			phase_function.push_back(temp);
+		}
+	}
+
+	std::sort(phase_function.begin(), phase_function.end(),[](std::vector<double>& v1, std::vector<double>& v2) {return v1[0] < v2[0];});
+
+	return phase_function;
+}
+
+inline std::vector<std::vector<double>> importRefractiveIndex(std::string filename)
+{
+	std::ifstream input(filename);
+	std::string str;
+
+	std::vector<std::vector<double>> refractive_index;
+
+	while(std::getline(input, str))
+	{
+		if(str[0] != '#' && str.size() > 3)
+		{
+			auto data = splitString(str, ',');
+			std::vector<double> temp = {std::stod(data[0]), std::stod(data[1]), std::stod(data[2])};
+			// temp[0] *= scaleUnit(atmosphere_model.species[i].unit_input_wavelength, "m");
+			refractive_index.push_back(temp);
+		}
+	}
+
+	std::sort(refractive_index.begin(), refractive_index.end(),[](std::vector<double>& v1, std::vector<double>& v2) {return v1[0] < v2[0];});
+
+	return refractive_index;
+}
+
+inline void computeMieScattering(int n, double radius, double wavelength, std::complex<double> index, double& scattering_cross_section, double& absorption_cross_section, double& extinction_cross_section, std::vector<std::vector<double>>& phase_function)
+{
+	// Input validation
+	if (radius <= 0.0 || wavelength <= 0.0 || n < 2)
+	{
+		scattering_cross_section = 0.0;
+		absorption_cross_section = 0.0;
+		extinction_cross_section = 0.0;
+		phase_function.clear();
+		return;
+	}
+
+	// 1) サイズパラメータ x = π·D/λ
+	double diameter = 2.0 * radius;
+	double x = PI * diameter / wavelength;
+
+	// std::cout << wavelength << ", " << radius << ", " << x << std::endl;
+
+	// 2) 級数上限 N_stop
+	int nstop = int(std::floor(x + 4.05 * std::cbrt(x) + 2.0));
+
+	//std::cout << "Riccati-Bessel" << std::endl;
+
+	// 3) Riccati–Bessel 商 D_n(z) の計算
+	std::vector<std::complex<double>> DD(nstop + 1);
+
+	{
+		double threshold = (13.78 * index.real() - 10.8) * index.real() + 3.9;
+		auto z = x * index;
+		auto zinv = std::complex<double>(0.0, 0.0);
+	
+		if (std::abs(index.imag() * x) < threshold)
+		{
+			DD[0] = 1.0 / std::tan(z);
+			zinv  = 1.0 / z;
+			for (int i = 1; i <= nstop; ++i)
+			{
+				double k = double(i);
+				auto numerator = k * zinv;
+				DD[i] = 1.0 / (numerator - DD[i - 1]) - numerator;
+			}
+		}
+		else
+		{
+			auto zinv = 2.0 / z;
+			auto aj = -(nstop + 1.5) * zinv;
+			auto alpha_j1 = aj + 1.0 / ((nstop + 0.5) * zinv);
+			auto alpha_j2 = aj;
+			auto ratio = alpha_j1 / alpha_j2;
+			auto runratio = ((nstop + 0.5) * zinv) * ratio;
+
+			while (std::abs(std::abs(ratio) - 1.0) > 1e-12)
+			{
+				aj = zinv - aj;
+				alpha_j1 = 1.0 / alpha_j1 + aj;
+				alpha_j2 = 1.0 / alpha_j2 + aj;
+				ratio = alpha_j1 / alpha_j2;
+				runratio *= ratio;
+				zinv = -zinv;
+			}
+
+			DD[nstop] = -double(nstop) / z + runratio;
+			zinv = 1.0 / z;
+
+			for (int i = nstop - 1; i >= 0; --i)
+			{
+				double k = double(i + 1);
+				auto num = k * zinv;
+				DD[i] = num - 1.0 / (DD[i + 1] + num);
+			}
+		}
+	}
+
+	//std::cout << DD[nstop] << std::endl;
+
+	//std::cout << "a_n, b_n and Q" << std::endl;
+
+	// 4) Mie 係数 a_n, b_n と効率 Q の計算
+	std::vector<std::complex<double>> a(nstop), b(nstop);
+	double Qsca = 0.0;
+	double Qext = 0.0;
+
+	{
+		double psi0 = std::sin(x);
+		double psi1 = psi0 / x - std::cos(x);
+	
+		auto xi0 = std::complex<double>(psi0, -std::cos(x));
+		auto xi1 = std::complex<double>(psi1, -(std::cos(x) / x + std::sin(x)));
+
+		// double g = 0.0;
+		// double sign1 = 1.0;
+		// auto s1 = std::complex<double>(0.0, 0.0);
+		// auto s2 = std::complex<double>(0.0, 0.0);
+		// double pi0 = 0.0;
+		// double pi1 = 1.0;
+		// std::complex<double> ann_1(0.0, 0.0);
+		// std::complex<double> bnn_1(0.0, 0.0);
+
+		//std::cout << xi0 << ", " << xi1 << std::endl;
+
+		for (int i = 0; i < nstop; ++i)
+		{
+			a[i] = ((DD[i + 1] / index + double(i + 1) / x) * psi1 - psi0) / ((DD[i + 1] / index + double(i + 1) / x) * xi1 - xi0);
+			b[i] = ((DD[i + 1] * index + double(i + 1) / x) * psi1 - psi0) / ((DD[i + 1] * index + double(i + 1) / x) * xi1 - xi0);
+			
+			//double factor0 = (2.0 * double(i + 1) + 1.0) / double(i + 2) / double(i + 1);
+			//tau = double(i + 1) * mu * pi1 - double(i + 2) * pi0;
+			//double alpha = factor0 * pi1;
+			//double beta = factor0 * tau;
+			
+			//s1 = s1 + alpha * ann + beta * bnn;
+			//s2 = s2 + alpha * bnn + beta * ann;
+			
+			//factor0 = pi1;//((2*n+1)*mu[k]*pi1[k]-(n+1)*pi0[k])/n;
+			//pi1 = ((2.0 * double(i + 1) + 1.0) * mu * pi1 - double(i + 2) * pi0) / double(i + 1);
+			//pi0 = factor0;
+			
+			double factor0 = 2.0 * double(i + 1) + 1.0;
+			
+			//g = g + double(i) / double(i + 1) * (ann_1.real() * ann.real() + ann_1.imag() * ann.imag() + bnn_1.real() * bnn.real() + bnn_1.imag() * bnn.imag());
+			//g = g + factor0 / double(i + 1) / double(i + 2) * (ann.real() * bnn.real() + ann.imag() * bnn.imag());
+			Qsca = Qsca + factor0 * (std::abs(a[i]) * std::abs(a[i]) + std::abs(b[i]) * std::abs(b[i]));
+			Qext = Qext + factor0 * (a[i].real() + b[i].real());
+			
+			//sign1 = -sign1;
+			
+			factor0 = (2.0 * double(i + 1) + 1.0) / x;
+			std::complex<double> xi = factor0 * xi1 - xi0;
+			xi0 = xi1;
+			xi1 = xi;
+			
+			double psi = factor0 * psi1 - psi0;
+			psi0 = psi1;
+			psi1 = xi1.real();
+		}
+
+		//std::cout << xi0 << ", " << xi1 << ", " << psi0 << ", " << psi1 << std::endl;
+	}
+
+	// 5) 無次元効率 Q の正規化
+	Qsca = 2.0 * Qsca / (x * x);
+	Qext = 2.0 * Qext / (x * x);
+	double Qabs = Qext - Qsca;
+
+	// std::cout << "Qsca: " << Qsca << std::endl;
+	// std::cout << "Qabs: " << Qabs << std::endl;
+	// std::cout << "Qext: " << Qext << std::endl;
+
+	// 6) 断面積 [m^2] に変換
+	double area = PI * radius * radius;
+	scattering_cross_section = Qsca * area;
+	absorption_cross_section = Qabs * area;
+	extinction_cross_section = Qext * area;
+
+	//std::cout << "Scattering phase function" << std::endl;
+
+	// 7) 位相関数の計算
+	phase_function.clear();
+	phase_function.resize(n);
+	double dtheta = PI / double(n - 1);
+
+	//#pragma omp parallel for
+	for (int k = 0; k < n; ++k)
+	{
+		double theta = dtheta * double(k);
+		double mu = std::cos(theta);
+
+		std::complex<double> S1(0.0, 0.0);
+		std::complex<double> S2(0.0, 0.0);
+		double pi0 = 0.0;
+		double pi1 = 1.0;
+
+		for (int i = 0; i < nstop; ++i)
+		{
+			double weight = (2.0 * double(i + 1) + 1.0) / double(i + 2) / double(i + 1);
+			double tau = double(i + 1) * mu * pi1 - double(i + 2) * pi0;
+			// double tau = n_i * mu * pi1 - (n_i + 1) * pi0;
+
+			S1 += weight * (a[i] * pi1 + b[i] * tau);
+			S2 += weight * (b[i] * pi1 + a[i] * tau);
+
+			double pi2 = ((2.0 * double(i + 1) + 1.0) * mu * pi1 - double(i + 2) * pi0) / double(i + 1);
+			pi0 = pi1;
+			pi1 = pi2;
+		}
+
+		double s11 = 0.5 * (std::norm(S2) + std::norm(S1));
+		// double s12 = 0.5 * (std::norm(S2) - std::norm(S1));
+		// double pol = -s12 / s11;
+		// double s33 = (S2 * std::conj(S1)).real();
+		// double s34 = (S2 * std::conj(S1)).imag();
+		double natural = s11 / (PI * x * x * Qsca);
+		//double P11 = s11 / (PI * x * x * Qsca);
+
+		phase_function[k] = {theta, natural * 4.0 * PI};
+	}
+
+	return;
+}
+
+inline void computeMieScattering(int n_theta, const std::vector<std::vector<double>>& size_distribution, int n_radius, double wavelength, std::complex<double> refractive_index, double& scattering_cross_section, double& absorption_cross_section, double& extinction_cross_section, std::vector<std::vector<double>>& phase_function)
+{	
+	if(size_distribution.size() == 1)
+	{
+		computeMieScattering(n_theta, size_distribution[0][0], wavelength, refractive_index, scattering_cross_section, absorption_cross_section, extinction_cross_section, phase_function);
+		normalizeScatteringPhaseFunction(phase_function);
+
+		return;
+	}
+
+	if(n_radius % 2 == 0)
+	{
+		n_radius ++;
+	}
+
+	if(n_theta % 2 == 0)
+	{
+		n_theta ++;
+	}
+
+	phase_function.clear();
+	phase_function.resize(n_theta);
+
+	scattering_cross_section = 0.0;
+	absorption_cross_section = 0.0;
+	extinction_cross_section = 0.0;
+
+	std::vector<std::vector<double>> sigma_s, sigma_a, sigma_e;
+
+	double radius_min = size_distribution[0][0];
+	double radius_max = size_distribution[size_distribution.size() - 1][0];
+
+	std::vector<double> radius(n_radius);
+	
+	for(int i = 0; i < radius.size(); i ++)
+	{
+		radius[i] = radius_min + (radius_max - radius_min) / double(n_radius - 1) * double(i);
+	}
+
+	std::vector<std::vector<double>> size_distribution_resampled(radius.size(), {0.0, 0.0});
+
+	for(int nr = 0; nr < radius.size(); nr ++)
+	{
+		size_distribution_resampled[nr][0] = radius[nr];
+
+		for (int i = 0; i < size_distribution.size() - 1; i++)
+		{
+			if (size_distribution[i][0] <= radius[nr] && radius[nr] <= size_distribution[i + 1][0])
+			{
+				double r = (radius[nr] - size_distribution[i][0]) / (size_distribution[i + 1][0] - size_distribution[i][0]);
+				size_distribution_resampled[nr][1] = size_distribution[i][1] + r * (size_distribution[i + 1][1] - size_distribution[i][1]);
+
+				break;
+			}
+		}
+	}
+
+	//std::vector<std::vector<double>> pf_wl(ntheta, {0.0, 0.0}); // 波長方向の位相関数
+	for(int i = 0; i < phase_function.size(); i ++)
+	{
+		double theta = PI / double(n_theta - 1) * double(i);
+
+		phase_function[i] = {theta, 0.0};
+	}
+
+	std::vector<std::vector<std::vector<double>>> pf_r(n_theta);
+
+	std::vector<std::vector<double>> int_size_distribution;
+	// ガウス求積で粒径方向の積分
+	for (int nr = 0; nr < radius.size(); nr++)
+	{
+		double sigma_s_r, sigma_a_r, sigma_e_r;
+		std::vector<std::vector<double>> pf_r_temp;
+
+		// 粒径に対するMie散乱計算
+		computeMieScattering(n_theta, radius[nr], wavelength, refractive_index, sigma_s_r, sigma_a_r, sigma_e_r, pf_r_temp);
+		//std::cout << radius[nr] << ", " << wavelength[nw] << ", " << index[nw] << std::endl;
+		sigma_s.push_back({radius[nr], sigma_s_r * size_distribution_resampled[nr][1]});
+		sigma_a.push_back({radius[nr], sigma_a_r * size_distribution_resampled[nr][1]});
+		sigma_e.push_back({radius[nr], sigma_e_r * size_distribution_resampled[nr][1]});
+		int_size_distribution.push_back({radius[nr], size_distribution_resampled[nr][1]});
+
+		for (int nt = 0; nt < n_theta; nt++)
+		{
+			pf_r[nt].push_back({radius[nr], pf_r_temp[nt][1] * sigma_s_r * size_distribution_resampled[nr][1]});
+		}
+	}
+
+	double int_size_dist = computeSimpsonIntegration(int_size_distribution);
+
+	scattering_cross_section = computeSimpsonIntegration(sigma_s) / int_size_dist;
+	absorption_cross_section = computeSimpsonIntegration(sigma_a) / int_size_dist;
+	extinction_cross_section = computeSimpsonIntegration(sigma_e) / int_size_dist;
+
+	for (int nt = 0; nt < n_theta; nt ++)
+	{
+		phase_function[nt][1] = computeSimpsonIntegration(pf_r[nt]);
+	}
+
+	normalizeScatteringPhaseFunction(phase_function);
+
+	return;
+}
+
+inline void computeMieScatteringLogNormal(int n_theta, int n_radius, double r_g, double sigma_g, double wavelength, std::complex<double> refractive_index, double& scattering_cross_section, double& absorption_cross_section, double& extinction_cross_section, std::vector<std::vector<double>>& phase_function)
+{
+	auto avgMieLogNormal = [](double r_g, double sigma_g, int nsd, int nangle, double wavelength, std::complex<double> refractive_index, double& c_sca, double& c_abs, double& c_ext, std::vector<std::vector<double>>& spf)
+	{
+		if (nsd < 3)
+		{
+			nsd = 3;
+		}
+
+		if (nsd % 2 == 0)
+		{
+			++nsd; // Simpson 用に奇数点
+		}
+	
+		// 1) log‐normal 分布テーブル生成 (r_i, pdf_i)
+		auto dist_tbl = generateLogNormalSizeDistribution(r_g, sigma_g, nsd);
+	
+		// ln r 等間隔確認 & Δln r 取得
+		std::vector<double> ln_r(nsd), pdf(nsd);
+		for (int i = 0; i < nsd; ++i)
+		{
+			ln_r[i] = std::log(dist_tbl[i][0]);
+			//std::cout << dist_tbl[i][0] << ", " << ln_r[i] << ", " << dist_tbl[i][1] << std::endl;
+			pdf[i] = dist_tbl[i][1];
+		}
+		double h = ln_r[1] - ln_r[0];        // Δln r (一定)
+	
+		// 2) 積分ループ (Simpson)
+		c_sca = 0.0;
+		c_abs = 0.0;
+		c_ext = 0.0;
+		spf.clear();
+		spf.assign(nangle, {0.0, 0.0});
+
+		for(int k = 0; k < nangle; ++k)
+		{
+			spf[k][0] = PI * double(k) / double(nangle - 1);
+		}
+	
+		double Csca_sum = 0.0;
+		double Cabs_sum = 0.0;
+		double Cext_sum = 0.0;
+		double norm_sum = 0.0;
+	
+		auto coeff = [&](int i){return (i == 0 || i == nsd - 1) ? 1.0 : (i % 2 ? 4.0 : 2.0);};
+	
+		for(int i = 0 ; i < nsd; ++i)
+		{
+			double r = dist_tbl[i][0];
+			double w_i = pdf[i] * r * coeff(i); // ヤコビアン×Simpson 係数
+	
+			double Cs, Ca, Ce;
+			std::vector<std::vector<double>> spf_tmp;
+			computeMieScattering(nangle, r, wavelength, refractive_index, Cs, Ca, Ce, spf_tmp);
+
+			// std::cout << r << ", " << w_i << ", " << Cs << ", " << Ca << ", " << Ce << std::endl;
+	
+			Csca_sum += w_i * Cs;
+			Cabs_sum += w_i * Ca;
+			Cext_sum += w_i * Ce;
+			norm_sum += w_i;
+	
+			for(int k = 0; k < nangle; ++k)
+			{
+				spf[k][1] += w_i * Cs * spf_tmp[k][1];
+			}
+		}
+	
+		Csca_sum *= h / 3.0;
+		Cabs_sum *= h / 3.0;
+		Cext_sum *= h / 3.0;
+		norm_sum *= h / 3.0;
+	
+		c_sca = Csca_sum / norm_sum;
+		c_abs = Cabs_sum / norm_sum;
+		c_ext = Cext_sum / norm_sum;
+	
+		for(int k = 0; k < nangle; ++k)
+		{
+			spf[k][1] = spf[k][1] * h / 3.0 / Csca_sum;
+		}
+	
+		return;
+	};
+
+	if(n_radius % 2 == 0)
+	{
+		n_radius ++;
+	}
+
+	if(n_theta % 2 == 0)
+	{
+		n_theta ++;
+	}
+
+	phase_function.clear();
+	phase_function.resize(n_theta);
+
+	scattering_cross_section = 0.0;
+	absorption_cross_section = 0.0;
+	extinction_cross_section = 0.0;
+	
+	for(int i = 0; i < phase_function.size(); i ++)
+	{
+		double theta = PI / double(n_theta - 1) * double(i);
+
+		phase_function[i] = {theta, 0.0};
+	}
+	
+	avgMieLogNormal(r_g, sigma_g, n_radius, n_theta, wavelength, refractive_index, scattering_cross_section, absorption_cross_section, extinction_cross_section, phase_function);
+
+	normalizeScatteringPhaseFunction(phase_function);
+
+	return;
+}
+
+inline std::vector<std::vector<double>> generateLogNormalSizeDistribution(double r_g, double sigma_g, int nsd)
+{
+	auto logspace_ln = []( double r_min, double r_max, int n)
+	{
+		std::vector<double> result(n);
+		double ln_min = std::log(r_min);
+		double ln_max = std::log(r_max);
+		double dln    = (ln_max - ln_min) / double(n - 1);
+	
+		for (int i = 0; i < n; ++i)
+		{
+			result[i] = std::exp(ln_min + dln * double(i));
+		}
+		return result;
+	};
+
+	//sigma_g is used in the textbook "Transfer of polarized light in planetary atmospheres"
+	//sigma_g = log(sigma), sigma is the value used in the Pollack et al., 1980
+	std::vector<std::vector<double>> result;
+
+	//std::cout << r_g << ", " << sigma_g << std::endl;
+
+	if(nsd % 2 == 0)
+	{
+		nsd ++;
+	}
+
+	double cdf_start = 0.005;
+	double cdf_end = 0.995;
+
+	double r_start = r_g * std::exp(sigma_g * std::sqrt(2.0) * computeInverseErrorFunction(2.0 * cdf_start - 1.0, sigma_g * 1.0E-5, 100));
+	double r_end = r_g * std::exp(sigma_g * std::sqrt(2.0) * computeInverseErrorFunction(2.0 * cdf_end - 1.0, sigma_g * 1.0E-5, 100));
+	//double dr = (r_end - r_start) / double(nsd - 1);
+
+	auto r_list = logspace_ln(r_start, r_end, nsd);
+
+	for (int i = 0; i < nsd; ++i)
+	{
+		double r = r_list[i];
+		double ln  = std::log(r / r_g);
+		double pdf = (1.0 / (sigma_g * r * std::sqrt(2.0 * PI))) * std::exp(-ln * ln / (2.0 * sigma_g * sigma_g));
+		result.push_back({r, pdf});
+	}
+
+	// std::cout << r_start << ", " << r_end << ", " << dr << std::endl;
+
+	// for(int i = 0; i < nsd; i ++)
+	// {
+	// 	double r = r_start + double(i) * dr;
+
+	// 	if(r > 0.0 && r_g > 0 && sigma_g > 0)
+	// 	{
+	// 		double sd = 1.0 / (sigma_g * r * std::sqrt(2.0 * PI));
+	// 		double ln = std::log(r / r_g);
+	// 		sd *= std::exp(-ln * ln / (2.0 * sigma_g * sigma_g));
+
+	// 		std::vector<double> temp = {r, sd};
+
+	// 		result.push_back(temp);
+	// 	}
+	// }
+
+	return result;
+}
+
+inline std::vector<std::vector<double>> computeRayleighScatteringFunction(int ntheta)
+{
+	if(ntheta % 2 == 0)
+	{
+		ntheta ++;
+	}
+
+	std::vector<std::vector<double>> phase_function(ntheta);
+
+	for(int i = 0; i < ntheta; i ++)
+	{
+		double theta = PI * double(i) / double(ntheta - 1);
+		phase_function[i] = {theta, 3.0 / 4.0 * (1.0 + std::cos(theta) * std::cos(theta))};
+	}
+
+	return phase_function;
+}
+
+inline double planck_source(double B, double tau, double mu)
+{
+	// std::cout << B << ", " << tau << ", " << mu << std::endl;
+	// 1 – exp(‑τ/μ)  ---  use expm1 for numerical safety when τ is very small.
+	return B * (-std::expm1(-tau / mu));
+}
+
+inline void RadiativeTransfer::initializeLayer(Layer& layer)
+{
+	while(layer.optical_thickness > configuration.tau_initial_layer)
+	{
+		layer.optical_thickness /= 2.0;
+		layer.n_doubling ++;
+	}
+
+	layer.reflectance_m_top_cos = std::vector<Eigen::MatrixXd>(M + 1, Eigen::MatrixXd::Zero(Ntheta, Ntheta));
+	layer.reflectance_m_bottom_cos = std::vector<Eigen::MatrixXd>(M + 1, Eigen::MatrixXd::Zero(Ntheta, Ntheta));
+	layer.transmittance_m_top_cos = std::vector<Eigen::MatrixXd>(M + 1, Eigen::MatrixXd::Zero(Ntheta, Ntheta));
+	layer.transmittance_m_bottom_cos = std::vector<Eigen::MatrixXd>(M + 1, Eigen::MatrixXd::Zero(Ntheta, Ntheta));
+	
+	layer.reflectance_m_top_sin = std::vector<Eigen::MatrixXd>(M + 1, Eigen::MatrixXd::Zero(Ntheta, Ntheta));
+	layer.reflectance_m_bottom_sin = std::vector<Eigen::MatrixXd>(M + 1, Eigen::MatrixXd::Zero(Ntheta, Ntheta));
+	layer.transmittance_m_top_sin = std::vector<Eigen::MatrixXd>(M + 1, Eigen::MatrixXd::Zero(Ntheta, Ntheta));
+	layer.transmittance_m_bottom_sin = std::vector<Eigen::MatrixXd>(M + 1, Eigen::MatrixXd::Zero(Ntheta, Ntheta));
+
+	layer.reflectance_top = std::vector<std::vector<std::vector<double>>>(Ntheta, std::vector<std::vector<double>>(Ntheta, std::vector<double>(Nphi)));
+	layer.reflectance_bottom = std::vector<std::vector<std::vector<double>>>(Ntheta, std::vector<std::vector<double>>(Ntheta, std::vector<double>(Nphi)));
+	layer.transmittance_top = std::vector<std::vector<std::vector<double>>>(Ntheta, std::vector<std::vector<double>>(Ntheta, std::vector<double>(Nphi)));
+	layer.transmittance_bottom = std::vector<std::vector<std::vector<double>>>(Ntheta, std::vector<std::vector<double>>(Ntheta, std::vector<double>(Nphi)));
+
+	layer.source_up = Eigen::VectorXd::Zero(Ntheta);
+	layer.source_down = Eigen::VectorXd::Zero(Ntheta);
+
+	int n_samp = configuration.n_icss_sample;
+	bool enable_ssp = configuration.icss_type == InCellSuperSamplingType::Enable;
+
+	if(configuration.delta_approximation_type != DeltaApproximationType::Disable)
+	{
+		// std::cout << "Delta-M approximation" << std::endl;
+		double norm = 0;
+		double m1 = 0;
+		double m2 = 0;
+		std::vector<double> cumsum(layer.scattering_phase_function.size());
+
+		double dtheta = layer.scattering_phase_function[1][0] - layer.scattering_phase_function[0][0];
+
+		for(int i = 0; i < layer.scattering_phase_function.size(); i ++)
+		{
+			double theta = layer.scattering_phase_function[i][0];
+			double w = std::sin(theta) * dtheta;
+			norm += layer.scattering_phase_function[i][1] * w;
+			m1 += layer.scattering_phase_function[i][1] * std::cos(theta) * w;
+			m2 += layer.scattering_phase_function[i][1] * 0.5 * (3.0 * std::cos(theta) * std::cos(theta) - 1.0) * w;
+			cumsum [i] = norm;
+		}
+
+		if(norm <= 0.0)
+		{
+			norm = 1.0;
+		}
+
+		m1 /= norm;
+		m2 /= norm;
+
+		double f = 0.0;
+
+		if(configuration.delta_approximation_type == DeltaApproximationType::d_m1)
+		{
+			f = m1 * m1;
+		}
+		else if(configuration.delta_approximation_type == DeltaApproximationType::d_m2)
+		{
+			f = m2;
+		}
+		else if(configuration.delta_approximation_type == DeltaApproximationType::Cumulative)
+		{
+			int lo = 0;
+			int hi = layer.scattering_phase_function.size() - 1;
+
+			while(hi - lo > 1)
+			{
+				int mid = (lo + hi) / 2;
+				if (cumsum[mid] / norm >= configuration.f_target)
+				{
+					hi = mid;
+				}
+				else
+				{
+					lo = mid;
+				}
+			}
+
+			f = cumsum[hi] / norm;  // 実際に抜き取る面積
+		}
+		else if(configuration.delta_approximation_type == DeltaApproximationType::FWHM)
+		{
+			std::vector<double> tail;
+			tail.reserve(layer.scattering_phase_function.size() / 2);
+			for(int i = 0; i < layer.scattering_phase_function.size(); ++i)
+			{
+				if (layer.scattering_phase_function[i][0] > PI / 2.0)
+				{
+					tail.push_back(layer.scattering_phase_function[i][1]); // 位相関数値だけ抜き出し
+				}
+			}
+			if (tail.empty())
+			{
+				tail.clear();
+				tail.reserve(layer.scattering_phase_function.size());
+				for(int i = 0; i < layer.scattering_phase_function.size(); ++i)
+				{
+					tail.push_back(layer.scattering_phase_function[i][1]); 
+				}
+			}
+
+			// 中央値を nth_element で求める
+			std::nth_element(tail.begin(), tail.begin() + tail.size() / 2, tail.end());
+			double B = tail[tail.size() / 2];   // background
+
+			// 3) ピーク H
+			double H = layer.scattering_phase_function[0][1];
+
+			// 4) 閾値 T
+			double T = B + configuration.fwhm_ratio * (H - B);
+
+			// 5) 最小インデックス kc s.t. P[k][1] <= T
+			int kc = layer.scattering_phase_function.size() - 1;
+
+			for(int k = 0; k < layer.scattering_phase_function.size(); k ++)
+			{
+				if(layer.scattering_phase_function[k][1] <= T)
+				{
+					kc = k;
+					break;
+				}
+			}
+
+			// 6) 実際に抜き取る面積 f = cumsum[kc]/norm
+			f = cumsum[kc] / norm;
+		}
+
+		double tau0 = layer.optical_thickness;
+		double omega0 = layer.single_scattering_albedo;
+		double denom = 1.0 - omega0 * f;
+		layer.optical_thickness = (1.0 - omega0 * f) * tau0;
+		layer.single_scattering_albedo = (1.0 - f) * omega0 / denom;
+
+		/* --- 3. 位相関数の部分スケール（θ ≤ θc を同率減） ------------------- */
+
+		/* θc に対応するインデックス k_cut：cumsum[k_cut]/norm ≧ f */
+		int k_cut = 0;
+		for (int k = 0; k < layer.scattering_phase_function.size(); ++ k)
+		{
+			if (cumsum[k] / norm >= f)
+			{
+				k_cut = k; break;
+			}
+		}
+
+		/* θ ≤ θc 部分の面積  */
+		const double A_c = cumsum[k_cut];          // 未正規化面積
+		double alpha = (f * norm) / A_c;           // 縮小率 α
+		alpha = std::clamp(alpha, 0.0, 1.0);       // 数値安全
+
+		/* 位相関数の更新 */
+		for (int i = 0; i < layer.scattering_phase_function.size(); ++ i)
+		{
+			double Pold = layer.scattering_phase_function[i][1];
+			double Pnew = (i <= k_cut) ? Pold * (1.0 - alpha)  : Pold;
+			Pnew /= (1.0 - f);
+			layer.scattering_phase_function[i][1] = Pnew;
+		}
+	}
+
+	// #pragma omp parallel for
+	for(int e_n = 0; e_n < Ntheta; e_n ++)
+	{
+		//std::cout << layer.planck_function << std::endl;
+		layer.source_up(e_n) = (1.0 - layer.single_scattering_albedo) * planck_source(layer.planck_function, layer.optical_thickness, geometry.mu_uh(e_n));
+		layer.source_down(e_n) = (1.0 - layer.single_scattering_albedo) * planck_source(layer.planck_function, layer.optical_thickness, geometry.mu_lh(e_n));
+	}
+
+	//#pragma omp parallel for
+	for(int e = 0; e < Ntheta; e ++)
+	{
+		for(int i = 0; i < Ntheta; i ++)
+		{
+			for(int p = 0; p < Nphi; p ++)
+			{
+				{// for R_top
+					double theta_e = geometry.theta_uh(e);
+					double theta_i = geometry.theta_lh(i);
+
+					double xi = std::sin(theta_i);
+					double yi = 0.0;
+					double zi = std::cos(theta_i);
+
+					double xe = std::sin(theta_e) * std::cos(geometry.phi[p]);
+					double ye = std::sin(theta_e) * std::sin(geometry.phi[p]);
+					double ze = std::cos(theta_e);
+
+					double inner = xi * xe + yi * ye + zi * ze;
+					double scattering_angle;
+					if(inner >= 1.0)
+					{
+						scattering_angle = 0.0;
+					}
+					else if(inner <= -1.0)
+					{
+						scattering_angle = PI;
+					}
+					else
+					{
+						scattering_angle = std::acos(inner);
+					}
+
+					if(layer.single_scattering_albedo == 0.0)
+					{
+						layer.reflectance_top[e][i][p] = 0.0;
+					}
+					else
+					{
+						layer.reflectance_top[e][i][p] = layer.single_scattering_albedo * layer.optical_thickness / (4.0 * geometry.mu_lh(i) * geometry.mu_uh(e)) * computePhaseFunction(layer.scattering_phase_function, scattering_angle);
+					}
+				}
+
+				{// for R_bottom
+					double theta_e = geometry.theta_lh(e);
+					double theta_i = geometry.theta_uh(i);
+
+					double xi = std::sin(theta_i);
+					double yi = 0.0;
+					double zi = std::cos(theta_i);
+
+					double xe = std::sin(theta_e) * std::cos(geometry.phi[p]);
+					double ye = std::sin(theta_e) * std::sin(geometry.phi[p]);
+					double ze = std::cos(theta_e);
+
+					double inner = xi * xe + yi * ye + zi * ze;
+					double scattering_angle;
+					if(inner >= 1.0)
+					{
+						scattering_angle = 0.0;
+					}
+					else if(inner <= -1.0)
+					{
+						scattering_angle = PI;
+					}
+					else
+					{
+						scattering_angle = std::acos(inner);
+					}
+
+					if(layer.single_scattering_albedo == 0.0)
+					{
+						layer.reflectance_bottom[e][i][p] = 0.0;
+					}
+					else
+					{
+						layer.reflectance_bottom[e][i][p] = layer.single_scattering_albedo * layer.optical_thickness / (4.0 * geometry.mu_uh(i) * geometry.mu_lh(e)) * computePhaseFunction(layer.scattering_phase_function, scattering_angle);
+					}
+				}
+
+				{// for T_top
+					double theta_e = geometry.theta_lh(e);
+					double theta_i = geometry.theta_lh(i);
+
+					double xi = std::sin(theta_i);
+					double yi = 0.0;
+					double zi = std::cos(theta_i);
+
+					double xe = std::sin(theta_e) * std::cos(geometry.phi[p]);
+					double ye = std::sin(theta_e) * std::sin(geometry.phi[p]);
+					double ze = std::cos(theta_e);
+
+					double inner = xi * xe + yi * ye + zi * ze;
+					double scattering_angle;
+					if(inner >= 1.0)
+					{
+						scattering_angle = 0.0;
+					}
+					else if(inner <= -1.0)
+					{
+						scattering_angle = PI;
+					}
+					else
+					{
+						scattering_angle = std::acos(inner);
+					}
+
+					if(layer.single_scattering_albedo == 0.0)
+					{
+						layer.transmittance_top[e][i][p] = 0.0;
+					}
+					else
+					{
+						layer.transmittance_top[e][i][p] = layer.single_scattering_albedo * layer.optical_thickness / (4.0 * geometry.mu_lh(i) * geometry.mu_lh(e)) * computePhaseFunction(layer.scattering_phase_function, scattering_angle);
+					}
+				}
+
+				{// for T_bottom
+					double theta_e = geometry.theta_uh(e);
+					double theta_i = geometry.theta_uh(i);
+
+					double xi = std::sin(theta_i);
+					double yi = 0.0;
+					double zi = std::cos(theta_i);
+
+					double xe = std::sin(theta_e) * std::cos(geometry.phi[p]);
+					double ye = std::sin(theta_e) * std::sin(geometry.phi[p]);
+					double ze = std::cos(theta_e);
+
+					double inner = xi * xe + yi * ye + zi * ze;
+					double scattering_angle;
+					if(inner >= 1.0)
+					{
+						scattering_angle = 0.0;
+					}
+					else if(inner <= -1.0)
+					{
+						scattering_angle = PI;
+					}
+					else
+					{
+						scattering_angle = std::acos(inner);
+					}
+
+					if(layer.single_scattering_albedo == 0.0)
+					{
+						layer.transmittance_bottom[e][i][p] = 0.0;
+					}
+					else
+					{
+						layer.transmittance_bottom[e][i][p] = layer.single_scattering_albedo * layer.optical_thickness / (4.0 * geometry.mu_uh(i) * geometry.mu_uh(e)) * computePhaseFunction(layer.scattering_phase_function, scattering_angle);
+					}
+				}
+			}
+		}
+	}
+
+	// std::cout << "Computing Fouriere Series Expansion." << std::endl;
+	computeFourierSeriesCoefficients(layer);
+
+	layer.asymmetry_parameter = computeAsymmetryParameter(layer.scattering_phase_function);
+	// std::cout << layer.asymmetry_parameter << std::endl;
+
+	return;
+}
+
+inline void RadiativeTransfer::initializeSurface(Layer& layer)
+{
+	if(configuration.surface_type == SurfaceType::NoSurface)
+	{
+		;
+	}
+	else if(configuration.surface_type == SurfaceType::Lambert)
+	{
+		layer.reflectance_m_top_cos = std::vector<Eigen::MatrixXd>(M + 1, Eigen::MatrixXd::Zero(Ntheta, Ntheta));
+		layer.reflectance_m_bottom_cos = std::vector<Eigen::MatrixXd>(M + 1, Eigen::MatrixXd::Zero(Ntheta, Ntheta));
+		layer.transmittance_m_top_cos = std::vector<Eigen::MatrixXd>(M + 1, Eigen::MatrixXd::Zero(Ntheta, Ntheta));
+		layer.transmittance_m_bottom_cos = std::vector<Eigen::MatrixXd>(M + 1, Eigen::MatrixXd::Zero(Ntheta, Ntheta));
+		
+		layer.reflectance_m_top_sin = std::vector<Eigen::MatrixXd>(M + 1, Eigen::MatrixXd::Zero(Ntheta, Ntheta));
+		layer.reflectance_m_bottom_sin = std::vector<Eigen::MatrixXd>(M + 1, Eigen::MatrixXd::Zero(Ntheta, Ntheta));
+		layer.transmittance_m_top_sin = std::vector<Eigen::MatrixXd>(M + 1, Eigen::MatrixXd::Zero(Ntheta, Ntheta));
+		layer.transmittance_m_bottom_sin = std::vector<Eigen::MatrixXd>(M + 1, Eigen::MatrixXd::Zero(Ntheta, Ntheta));
+
+		layer.reflectance_top = std::vector<std::vector<std::vector<double>>>(Ntheta, std::vector<std::vector<double>>(Ntheta, std::vector<double>(Nphi)));
+		layer.reflectance_bottom = std::vector<std::vector<std::vector<double>>>(Ntheta, std::vector<std::vector<double>>(Ntheta, std::vector<double>(Nphi)));
+		layer.transmittance_top = std::vector<std::vector<std::vector<double>>>(Ntheta, std::vector<std::vector<double>>(Ntheta, std::vector<double>(Nphi)));
+		layer.transmittance_bottom = std::vector<std::vector<std::vector<double>>>(Ntheta, std::vector<std::vector<double>>(Ntheta, std::vector<double>(Nphi)));
+
+		layer.source_up = Eigen::VectorXd::Zero(Ntheta);
+		layer.source_down = Eigen::VectorXd::Zero(Ntheta);
+
+		layer.optical_thickness = 1.0E100;
+
+		double s = geometry.WMU_lh.sum();
+
+		// std::cout << "s = " << s << std::endl;
+
+		// #pragma omp parallel for
+		for(int e = 0; e < Ntheta; e ++)
+		{
+			// 上向き：一定輝度 Bsurf*ε/π
+			layer.source_up(e) = (1.0 - configuration.surface_albedo) * layer.planck_function;
+			// 下向き放射はなし
+			layer.source_down(e) = 0.0;
+
+			for(int i = 0; i < Ntheta; i ++)
+			{
+				for(int p = 0; p < Nphi; p ++)
+				{
+					layer.reflectance_top[e][i][p] = configuration.surface_albedo / s;
+					// std::cout <<  layer.reflectance_top[e][i][p] << std::endl;
+					layer.transmittance_top[e][i][p] = 0.0;
+					layer.reflectance_bottom[e][i][p] = 0.0;
+					layer.transmittance_bottom[e][i][p] = 0.0;
+				}
+			}
+		}
+	}
+
+	computeFourierSeriesCoefficients(layer);
+
+	return;
+}
+
+inline void RadiativeTransfer::setLayerCondition(AtmosphereModel& atmosphere_model, double wavenumber)
+{
+	double wavelength = 1.0 / wavenumber;
+
+	auto B_lambda = [=](double lambda, double T) -> double
+	{
+		double B = 2.0 * SPEED_OF_LIGHT * SPEED_OF_LIGHT * PLANCK_CONSTANT;
+		B /= std::pow(lambda, 5);
+		B /= (std::exp(PLANCK_CONSTANT *SPEED_OF_LIGHT / (lambda * BOLTZMANN_CONSTANT * T)) - 1.0);
+		return B;
+	};
+
+	auto B_nu = [=](double nu, double T) -> double
+	{
+		double B = 2.0 * PLANCK_CONSTANT * SPEED_OF_LIGHT * SPEED_OF_LIGHT * std::pow(nu, 3);
+		B /= (std::exp(PLANCK_CONSTANT * SPEED_OF_LIGHT * nu / (BOLTZMANN_CONSTANT * T)) - 1.0);
+		return B; // [W·m^-2·sr^-1·(m^-1)^-1]
+	};
+
+	if(configuration.surface_type == SurfaceType::NoSurface)
+	{
+		if(configuration.enable_atmospheric_emission == true)
+		{
+			atmosphere_model.surface_layer.enable_atmospheric_emission = true;
+		}
+		else
+		{
+			atmosphere_model.surface_layer.enable_atmospheric_emission = false;
+		}
+	}
+	else if(configuration.surface_type == SurfaceType::Lambert)
+	{
+		if(configuration.enable_atmospheric_emission == true)
+		{
+			atmosphere_model.surface_layer.enable_atmospheric_emission = true;
+		}
+		else
+		{
+			atmosphere_model.surface_layer.enable_atmospheric_emission = false;
+		}
+
+		atmosphere_model.surface_layer.temperature = configuration.surface_temperature;
+
+		if(configuration.is_wavenumber == true)
+		{
+			atmosphere_model.surface_layer.planck_function = B_nu(wavenumber, atmosphere_model.surface_layer.temperature);
+		}
+		else
+		{
+			atmosphere_model.surface_layer.planck_function = B_lambda(wavelength, atmosphere_model.surface_layer.temperature);
+		}
+	}
+	
+	// 高度によらず一定の値のみ計算
+	for(int i = 0; i < atmosphere_model.species.size(); i ++)
+	{
+		if(atmosphere_model.species[i].species_state == SpeciesState::Aerosol)
+		{
+			if(atmosphere_model.species[i].scatter_type == ScatterType::Mie)
+			{
+				if(atmosphere_model.species[i].refractive_index_type != RefractiveIndexType::VerticalProfile)
+				{
+					std::complex<double> refractive_idx;
+					std::vector<std::vector<double>> size_dist;
+					std::vector<std::vector<double>> pf;
+					double ex;
+
+					if(atmosphere_model.species[i].refractive_index_type == RefractiveIndexType::Constant)
+					{
+						refractive_idx = std::complex<double>(atmosphere_model.species[i].nr, atmosphere_model.species[i].ni);
+					}
+					else if(atmosphere_model.species[i].refractive_index_type == RefractiveIndexType::External)
+					{
+						auto refractive_idx_file = importRefractiveIndex(atmosphere_model.species[i].filename_refractive_index);
+						
+						if(atmosphere_model.species[i].unit_x_input_refractive_index == UnitDim::Length)
+						{
+							for(int j = 0; j < refractive_idx_file.size(); j ++)
+							{
+								refractive_idx_file[j][0] *= scaleUnit(atmosphere_model.species[i].unit_input_refractive_index_wavelength, "m");
+							}
+
+							if(wavelength <= refractive_idx_file[0][0])
+							{
+								refractive_idx = std::complex<double>(refractive_idx_file[0][1], refractive_idx_file[0][2]);
+							}
+							else if(wavelength >= refractive_idx_file[refractive_idx_file.size() - 1][0])
+							{
+								refractive_idx = std::complex<double>(refractive_idx_file[refractive_idx_file.size() - 1][1], refractive_idx_file[refractive_idx_file.size() - 1][2]);
+							}
+							else
+							{
+								for(int j = 0; j < refractive_idx_file.size() - 1; j ++)
+								{
+									if(refractive_idx_file[j][0] <= wavelength && wavelength < refractive_idx_file[j + 1][0])
+									{
+										double r = (wavelength - refractive_idx_file[j][0]) / (refractive_idx_file[j + 1][0] - refractive_idx_file[j][0]);
+										double real = refractive_idx_file[j][1] + r * (refractive_idx_file[j + 1][1] - refractive_idx_file[j][1]);
+										double imag = refractive_idx_file[j][2] + r * (refractive_idx_file[j + 1][2] - refractive_idx_file[j][2]);
+										refractive_idx = std::complex<double>(real, imag);
+										break;
+									}	
+								}
+							}
+						}
+						else if(atmosphere_model.species[i].unit_x_input_refractive_index == UnitDim::Wavenumber)
+						{
+							for(int j = 0; j < refractive_idx_file.size(); j ++)
+							{
+								refractive_idx_file[j][0] *= scaleUnit(atmosphere_model.species[i].unit_input_refractive_index_wavenumber, "m-1");
+							}
+
+							if(wavenumber <= refractive_idx_file[0][0])
+							{
+								refractive_idx = std::complex<double>(refractive_idx_file[0][1], refractive_idx_file[0][2]);
+							}
+							else if(wavenumber >= refractive_idx_file[refractive_idx_file.size() - 1][0])
+							{
+								refractive_idx = std::complex<double>(refractive_idx_file[refractive_idx_file.size() - 1][1], refractive_idx_file[refractive_idx_file.size() - 1][2]);
+							}
+							else
+							{
+								for(int j = 0; j < refractive_idx_file.size() - 1; j ++)
+								{
+									if(refractive_idx_file[j][0] <= wavenumber && wavenumber < refractive_idx_file[j + 1][0])
+									{
+										double r = (wavenumber - refractive_idx_file[j][0]) / (refractive_idx_file[j + 1][0] - refractive_idx_file[j][0]);
+										double real = refractive_idx_file[j][1] + r * (refractive_idx_file[j + 1][1] - refractive_idx_file[j][1]);
+										double imag = refractive_idx_file[j][2] + r * (refractive_idx_file[j + 1][2] - refractive_idx_file[j][2]);
+										refractive_idx = std::complex<double>(real, imag);
+										break;
+									}	
+								}
+							}
+						}
+						
+					}
+
+					if(atmosphere_model.species[i].size_distribution == ParticleSizeDistribution::Delta)
+					{
+						size_dist = {{atmosphere_model.species[i].size, 1.0}};
+						computeMieScattering(configuration.n_scattering_angle, size_dist, 100, wavelength, refractive_idx, atmosphere_model.species[i].scattering_cross_section, atmosphere_model.species[i].absorption_cross_section, ex, pf);
+					}
+					else if(atmosphere_model.species[i].size_distribution == ParticleSizeDistribution::Gaussian)
+					{
+						double d_radius = 5.0 * atmosphere_model.species[i].sigma / double((atmosphere_model.species[i].n_radius - 1) / 2);
+
+						for(int nr = 0; nr < atmosphere_model.species[i].n_radius; nr ++)
+						{
+							double r = atmosphere_model.species[i].r_mean - 5.0 * atmosphere_model.species[i].sigma + double(nr) * d_radius;
+							if(r > 0.0)
+							{
+								double gauss = std::exp(-(r - atmosphere_model.species[i].r_mean) * (r - atmosphere_model.species[i].r_mean) / (2.0 * atmosphere_model.species[i].sigma * atmosphere_model.species[i].sigma));
+								std::vector<double> temp = {r, gauss};
+								size_dist.push_back(temp);
+							}
+						}
+
+						computeMieScattering(configuration.n_scattering_angle, size_dist, 100, wavelength, refractive_idx, atmosphere_model.species[i].scattering_cross_section, atmosphere_model.species[i].absorption_cross_section, ex, pf);
+					}
+					else if(atmosphere_model.species[i].size_distribution == ParticleSizeDistribution::Rectangular)
+					{
+						double d_radius = atmosphere_model.species[i].width / double(atmosphere_model.species[i].n_radius - 1);
+						
+						for(int nr = 0; nr < atmosphere_model.species[i].n_radius; nr ++)
+						{
+							double r = atmosphere_model.species[i].r_mean - 0.5 * atmosphere_model.species[i].width + double(nr) * d_radius;
+							if(r > 0.0)
+							{
+								std::vector<double> temp = {r, 1.0};
+								size_dist.push_back(temp);
+							}
+						}
+
+						computeMieScattering(configuration.n_scattering_angle, size_dist, 100, wavelength, refractive_idx, atmosphere_model.species[i].scattering_cross_section, atmosphere_model.species[i].absorption_cross_section, ex, pf);
+					}
+					else if(atmosphere_model.species[i].size_distribution == ParticleSizeDistribution::LogNormal)
+					{
+						computeMieScatteringLogNormal(configuration.n_scattering_angle, atmosphere_model.species[i].n_radius, atmosphere_model.species[i].r_g, atmosphere_model.species[i].sigma_g, wavelength, refractive_idx, atmosphere_model.species[i].scattering_cross_section, atmosphere_model.species[i].absorption_cross_section, ex, pf);
+					}
+					else if(atmosphere_model.species[i].size_distribution == ParticleSizeDistribution::External)
+					{
+						size_dist = importSizeDistribution(atmosphere_model.species[i].filename_size_distribution);
+
+						for(int j = 0; j < size_dist.size(); j ++)
+						{
+							size_dist[j][0] = size_dist[j][0] * scaleUnit(atmosphere_model.species[i].unit_input_radius, "m");
+						}
+						
+						computeMieScattering(configuration.n_scattering_angle, size_dist, 100, wavelength, refractive_idx, atmosphere_model.species[i].scattering_cross_section, atmosphere_model.species[i].absorption_cross_section, ex, pf);
+					}
+
+					atmosphere_model.species[i].scattering_phase_function = pf;
+					normalizeScatteringPhaseFunction(atmosphere_model.species[i].scattering_phase_function);
+				}
+			}
+			else
+			{
+				throw std::runtime_error("Currentry only Mie scattering is supported for aerosols.");
+			}
+		}
+		else if(atmosphere_model.species[i].species_state == SpeciesState::Molecule)
+		{
+			if(atmosphere_model.species[i].species_type == SpeciesType::Absorber || atmosphere_model.species[i].species_type == SpeciesType::Extinction)
+			{
+				if(atmosphere_model.species[i].absorption_cross_section_type == CrossSectionType::Constant)
+				{
+					// std::cout << atmosphere_model.species[i].absorption_cross_section << std::endl;
+				}
+				else if(atmosphere_model.species[i].absorption_cross_section_type == CrossSectionType::External)
+				{
+					if(atmosphere_model.species[i].unit_x_input_absorption == UnitDim::Length)
+					{
+						auto spec = importCrossSection(atmosphere_model.species[i].filename_absorption_cross_section);
+						for(int j = 0; j < spec.size(); j ++)
+						{
+							spec[j][0] = spec[j][0] * scaleUnit(atmosphere_model.species[i].unit_input_absorption_wavelength, "m");
+							spec[j][1] = spec[j][1] * scaleUnit(atmosphere_model.species[i].unit_input_absorption_cross_section, "m2");
+
+							// std::cout << spec[j][0] << ", " << spec[j][1] << std::endl;
+						}
+						// cross_section = computeCrossSection(spec, window_function);
+						
+						if(wavelength <= spec[0][0])
+						{
+							atmosphere_model.species[i].absorption_cross_section = spec[0][1];
+						}
+						else if(wavelength >= spec[spec.size() - 1][0])
+						{
+							atmosphere_model.species[i].absorption_cross_section = spec[spec.size() - 1][1];
+						}
+						else
+						{
+							for(int j = 0; j < spec.size() - 1; j ++)
+							{
+								if(spec[j][0] <= wavelength && wavelength < spec[j + 1][0])
+								{
+									double r = (wavelength - spec[j][0]) / (spec[j + 1][0] - spec[j][0]);
+									atmosphere_model.species[i].absorption_cross_section = spec[j][1] + r * (spec[j + 1][1] - spec[j][1]);
+									break;
+								}
+							}
+						}
+					}
+					else if(atmosphere_model.species[i].unit_x_input_absorption == UnitDim::Wavenumber)
+					{
+						auto spec = importCrossSection(atmosphere_model.species[i].filename_absorption_cross_section);
+						for(int j = 0; j < spec.size(); j ++)
+						{
+							spec[j][0] = spec[j][0] * scaleUnit(atmosphere_model.species[i].unit_input_absorption_wavenumber, "m-1");
+							spec[j][1] = spec[j][1] * scaleUnit(atmosphere_model.species[i].unit_input_absorption_cross_section, "m2");
+
+							// std::cout << spec[j][0] << ", " << spec[j][1] << std::endl;
+						}
+						// cross_section = computeCrossSection(spec, window_function);
+						
+						if(wavenumber <= spec[0][0])
+						{
+							atmosphere_model.species[i].absorption_cross_section = spec[0][1];
+						}
+						else if(wavenumber >= spec[spec.size() - 1][0])
+						{
+							atmosphere_model.species[i].absorption_cross_section = spec[spec.size() - 1][1];
+						}
+						else
+						{
+							for(int j = 0; j < spec.size() - 1; j ++)
+							{
+								if(spec[j][0] <= wavenumber && wavenumber < spec[j + 1][0])
+								{
+									double r = (wavenumber - spec[j][0]) / (spec[j + 1][0] - spec[j][0]);
+									atmosphere_model.species[i].absorption_cross_section = spec[j][1] + r * (spec[j + 1][1] - spec[j][1]);
+									break;
+								}
+							}
+						}
+					}
+				}
+				else if(atmosphere_model.species[i].absorption_cross_section_type == CrossSectionType::HITRAN)
+				{
+					;
+				}
+			}
+			
+			if(atmosphere_model.species[i].species_type == SpeciesType::Scatterer || atmosphere_model.species[i].species_type == SpeciesType::Extinction)
+			{
+				if(atmosphere_model.species[i].scattering_cross_section_type == CrossSectionType::Constant)
+				{
+					;
+				}
+				else if(atmosphere_model.species[i].scattering_cross_section_type == CrossSectionType::External)
+				{
+					if(atmosphere_model.species[i].unit_x_input_scattering == UnitDim::Length)
+					{
+						auto spec = importCrossSection(atmosphere_model.species[i].filename_scattering_cross_section);
+						for(int j = 0; j < spec.size(); j ++)
+						{
+							spec[j][0] = spec[j][0] * scaleUnit(atmosphere_model.species[i].unit_input_scattering_wavelength, "m");
+							spec[j][1] = spec[j][1] * scaleUnit(atmosphere_model.species[i].unit_input_scattering_cross_section, "m2");
+						}
+						
+						if(wavelength <= spec[0][0])
+						{
+							atmosphere_model.species[i].scattering_cross_section = spec[0][1];
+						}
+						else if(wavelength >= spec[spec.size() - 1][0])
+						{
+							atmosphere_model.species[i].scattering_cross_section = spec[spec.size() - 1][1];
+						}
+						else
+						{
+							for(int j = 0; j < spec.size() - 1; j ++)
+							{
+								if(spec[j][0] <= wavelength && wavelength < spec[j + 1][0])
+								{
+									double r = (wavelength - spec[j][0]) / (spec[j + 1][0] - spec[j][0]);
+									atmosphere_model.species[i].scattering_cross_section = spec[j][1] + r * (spec[j + 1][1] - spec[j][1]);
+									break;
+								}
+							}
+						}
+					}
+					else if(atmosphere_model.species[i].unit_x_input_scattering == UnitDim::Wavenumber)
+					{
+						auto spec = importCrossSection(atmosphere_model.species[i].filename_scattering_cross_section);
+						for(int j = 0; j < spec.size(); j ++)
+						{
+							spec[j][0] = spec[j][0] * scaleUnit(atmosphere_model.species[i].unit_input_scattering_wavenumber, "m-1");
+							spec[j][1] = spec[j][1] * scaleUnit(atmosphere_model.species[i].unit_input_scattering_cross_section, "m2");
+
+							// std::cout << spec[j][0] << ", " << spec[j][1] << std::endl;
+						}
+						// cross_section = computeCrossSection(spec, window_function);
+						
+						if(wavenumber <= spec[0][0])
+						{
+							atmosphere_model.species[i].scattering_cross_section = spec[0][1];
+						}
+						else if(wavenumber >= spec[spec.size() - 1][0])
+						{
+							atmosphere_model.species[i].scattering_cross_section = spec[spec.size() - 1][1];
+						}
+						else
+						{
+							for(int j = 0; j < spec.size() - 1; j ++)
+							{
+								if(spec[j][0] <= wavenumber && wavenumber < spec[j + 1][0])
+								{
+									double r = (wavenumber - spec[j][0]) / (spec[j + 1][0] - spec[j][0]);
+									atmosphere_model.species[i].scattering_cross_section = spec[j][1] + r * (spec[j + 1][1] - spec[j][1]);
+									break;
+								}
+							}
+						}
+					}
+				}
+				else if(atmosphere_model.species[i].scattering_cross_section_type == CrossSectionType::HITRAN)
+				{
+					throw std::runtime_error("Currentry HITRAN module for scattering is not supported.");
+				}
+
+				if(atmosphere_model.species[i].scatter_type == ScatterType::Rayleigh)
+				{
+					auto pf = computeRayleighScatteringFunction(configuration.n_scattering_angle);
+					//output_log << atmosphere_model.species[i].name << ", " << pf.size() << std::endl;
+					atmosphere_model.species[i].scattering_phase_function = pf;
+					normalizeScatteringPhaseFunction(atmosphere_model.species[i].scattering_phase_function);
+				}
+				else if(atmosphere_model.species[i].scatter_type == ScatterType::Isotropic)
+				{
+					std::vector<std::vector<double>> pf(configuration.n_scattering_angle);
+					double dtheta = PI / double(configuration.n_scattering_angle - 1);
+
+					for(int k = 0; k < configuration.n_scattering_angle; k ++)
+					{
+						double scattering_angle = dtheta * double(k);
+						pf[k].resize(2);
+						pf[k][0] = scattering_angle;
+						pf[k][1] = 1.0;
+					}
+
+					atmosphere_model.species[i].scattering_phase_function = pf;
+
+					// std::cout << "thru" << std::endl;
+
+					normalizeScatteringPhaseFunction(atmosphere_model.species[i].scattering_phase_function);
+				}
+				else if(atmosphere_model.species[i].scatter_type == ScatterType::HenyeyGreenstein)
+				{
+					double g = atmosphere_model.species[i].g_factor;
+
+					std::vector<std::vector<double>> pf(configuration.n_scattering_angle);
+					double dtheta = PI / double(configuration.n_scattering_angle - 1);
+
+					for(int k = 0; k < configuration.n_scattering_angle; k ++)
+					{
+						double hg = (1.0 - g * g) / std::pow(1 + g * g - 2.0 * g * std::cos(dtheta * double(k)), 1.5);
+						pf[k].resize(2);
+						pf[k][0] = dtheta * double(k);
+						pf[k][1] = hg;
+					}
+
+					atmosphere_model.species[i].scattering_phase_function = pf;
+
+					normalizeScatteringPhaseFunction(atmosphere_model.species[i].scattering_phase_function);
+				}
+				else if(atmosphere_model.species[i].scatter_type == ScatterType::Mie)
+				{
+					throw std::runtime_error("Currentry Mie scattering is not supported for molecules.");
+				}
+			}
+		}
+	}
+	
+	for(int i = 0; i < atmosphere_model.layers.size(); i ++)
+	{
+		if(configuration.is_wavenumber == true)
+		{
+			atmosphere_model.layers[i].planck_function = B_nu(wavenumber, atmosphere_model.layers[i].temperature);
+		}
+		else
+		{
+			atmosphere_model.layers[i].planck_function = B_lambda(wavelength, atmosphere_model.layers[i].temperature);
+		}
+
+		for(int j = 0; j < atmosphere_model.species.size(); j ++)
+		{
+			if(atmosphere_model.species[j].species_state == SpeciesState::Aerosol)
+			{
+				if(atmosphere_model.species[j].scatter_type == ScatterType::Mie)
+				{
+					if(atmosphere_model.species[j].refractive_index_type == RefractiveIndexType::VerticalProfile)
+					{
+						std::complex<double> refractive_idx = atmosphere_model.species[j].computeRefractiveIndex(atmosphere_model.layers[i].altitude);
+						std::vector<std::vector<double>> size_dist;
+						std::vector<std::vector<double>> pf;
+						double ex;
+
+						atmosphere_model.species[j].scattering_cross_section = 0.0;
+						atmosphere_model.species[j].absorption_cross_section = 0.0;
+
+						if(atmosphere_model.species[j].size_distribution == ParticleSizeDistribution::Delta)
+						{
+							size_dist = {{atmosphere_model.species[j].size, 1.0}};
+							computeMieScattering(configuration.n_scattering_angle, size_dist, 100, wavelength, refractive_idx, atmosphere_model.species[j].scattering_cross_section, atmosphere_model.species[j].absorption_cross_section, ex, pf);
+						}
+						else if(atmosphere_model.species[j].size_distribution == ParticleSizeDistribution::Gaussian)
+						{
+							double d_radius = 5.0 * atmosphere_model.species[j].sigma / double((atmosphere_model.species[j].n_radius - 1) / 2);
+
+							for(int nr = 0; nr < atmosphere_model.species[j].n_radius; nr ++)
+							{
+								double r = atmosphere_model.species[j].r_mean - 5.0 * atmosphere_model.species[j].sigma + double(nr) * d_radius;
+								if(r > 0.0)
+								{
+									double gauss = std::exp(-(r - atmosphere_model.species[j].r_mean) * (r - atmosphere_model.species[j].r_mean) / (2.0 * atmosphere_model.species[j].sigma * atmosphere_model.species[j].sigma));
+									std::vector<double> temp = {r, gauss};
+									size_dist.push_back(temp);
+								}
+							}
+
+							computeMieScattering(configuration.n_scattering_angle, size_dist, 100, wavelength, refractive_idx, atmosphere_model.species[j].scattering_cross_section, atmosphere_model.species[j].absorption_cross_section, ex, pf);
+						}
+						else if(atmosphere_model.species[j].size_distribution == ParticleSizeDistribution::Rectangular)
+						{
+							double d_radius = atmosphere_model.species[j].width / double(atmosphere_model.species[j].n_radius - 1);
+							
+							for(int nr = 0; nr < atmosphere_model.species[j].n_radius; nr ++)
+							{
+								double r = atmosphere_model.species[j].r_mean - 0.5 * atmosphere_model.species[j].width + double(nr) * d_radius;
+								if(r > 0.0)
+								{
+									std::vector<double> temp = {r, 1.0};
+									size_dist.push_back(temp);
+								}
+							}
+
+							computeMieScattering(configuration.n_scattering_angle, size_dist, 100, wavelength, refractive_idx, atmosphere_model.species[j].scattering_cross_section, atmosphere_model.species[j].absorption_cross_section, ex, pf);
+						}
+						else if(atmosphere_model.species[j].size_distribution == ParticleSizeDistribution::LogNormal)
+						{
+							computeMieScatteringLogNormal(configuration.n_scattering_angle, atmosphere_model.species[j].n_radius, atmosphere_model.species[j].r_g, atmosphere_model.species[j].sigma_g, wavelength, refractive_idx, atmosphere_model.species[j].scattering_cross_section, atmosphere_model.species[j].absorption_cross_section, ex, pf);
+						}
+						else if(atmosphere_model.species[j].size_distribution == ParticleSizeDistribution::External)
+						{
+							size_dist = importSizeDistribution(atmosphere_model.species[j].filename_size_distribution);
+
+							for(int k = 0; k < size_dist.size(); k ++)
+							{
+								size_dist[k][0] = size_dist[k][0] * scaleUnit(atmosphere_model.species[j].unit_input_radius, "m");
+							}
+							
+							computeMieScattering(configuration.n_scattering_angle, size_dist, 100, wavelength, refractive_idx, atmosphere_model.species[j].scattering_cross_section, atmosphere_model.species[j].absorption_cross_section, ex, pf);
+						}
+
+						atmosphere_model.species[j].scattering_phase_function = pf;
+						normalizeScatteringPhaseFunction(atmosphere_model.species[j].scattering_phase_function); 
+
+						atmosphere_model.layers[i].absorption_coefficient += atmosphere_model.layers[i].number_density_species[j] * atmosphere_model.species[j].absorption_cross_section;	// 1/m
+						atmosphere_model.layers[i].scattering_coefficient += atmosphere_model.layers[i].number_density_species[j] * atmosphere_model.species[j].scattering_cross_section;	// 1/m
+
+						for(int k = 0; k < atmosphere_model.layers[i].scattering_phase_function.size(); k ++)
+						{
+							atmosphere_model.layers[i].scattering_phase_function[k][1] += atmosphere_model.layers[i].number_density_species[j] * atmosphere_model.species[j].scattering_cross_section * atmosphere_model.species[j].scattering_phase_function[k][1];
+						}
+					}
+					else
+					{
+						atmosphere_model.layers[i].absorption_coefficient += atmosphere_model.layers[i].number_density_species[j] * atmosphere_model.species[j].absorption_cross_section;	// 1/m
+						atmosphere_model.layers[i].scattering_coefficient += atmosphere_model.layers[i].number_density_species[j] * atmosphere_model.species[j].scattering_cross_section;	// 1/m
+
+						for(int k = 0; k < atmosphere_model.layers[i].scattering_phase_function.size(); k ++)
+						{
+							atmosphere_model.layers[i].scattering_phase_function[k][1] += atmosphere_model.layers[i].number_density_species[j] * atmosphere_model.species[j].scattering_cross_section * atmosphere_model.species[j].scattering_phase_function[k][1];
+						}
+					}
+				}
+				else
+				{
+					// configuration.output_log << "WARNING: CURRENTRY ONLY MIE SCATTERING IS SUPPORTED FOR AEROSOLS" << std::endl;
+				}
+			}
+			else if(atmosphere_model.species[j].species_state == SpeciesState::Molecule)
+			{
+				if(atmosphere_model.species[j].species_type == SpeciesType::Scatterer || atmosphere_model.species[j].species_type == SpeciesType::Extinction)
+				{
+					atmosphere_model.layers[i].scattering_coefficient += atmosphere_model.layers[i].number_density_species[j] * atmosphere_model.species[j].scattering_cross_section;	// 1/m
+
+					for(int k = 0; k < atmosphere_model.layers[i].scattering_phase_function.size(); k ++)
+					{
+						atmosphere_model.layers[i].scattering_phase_function[k][1] += atmosphere_model.layers[i].number_density_species[j] * atmosphere_model.species[j].scattering_cross_section * atmosphere_model.species[j].scattering_phase_function[k][1];
+					}
+				}
+				if(atmosphere_model.species[j].species_type == SpeciesType::Absorber || atmosphere_model.species[j].species_type == SpeciesType::Extinction)
+				{
+					if(atmosphere_model.species[j].absorption_cross_section_type == CrossSectionType::HITRAN)
+					{
+						atmosphere_model.species[j].absorption_cross_section = 0.0;
+
+						for(int nlines = 0; nlines < atmosphere_model.species[j].lines.size(); nlines ++)
+						{
+							double q_self = atmosphere_model.layers[i].number_density_species[j] / atmosphere_model.layers[i].number_density;
+							atmosphere_model.species[j].absorption_cross_section += atmosphere_model.species[j].lines[nlines].computeCrossSection(1.0 / wavelength, atmosphere_model.layers[i].temperature, atmosphere_model.layers[i].pressure * q_self, atmosphere_model.layers[i].pressure, atmosphere_model.species[j].isotopologue, atmosphere_model.diluent);
+						}
+					}
+
+					atmosphere_model.layers[i].absorption_coefficient += atmosphere_model.layers[i].number_density_species[j] * atmosphere_model.species[j].absorption_cross_section;	// 1/m
+				}
+			}
+		}
+
+		atmosphere_model.layers[i].normalizeScatteringPhaseFunction();
+		atmosphere_model.layers[i].single_scattering_albedo = atmosphere_model.layers[i].scattering_coefficient / (atmosphere_model.layers[i].absorption_coefficient + atmosphere_model.layers[i].scattering_coefficient);
+		atmosphere_model.layers[i].optical_thickness = atmosphere_model.layers[i].physical_thickness * (atmosphere_model.layers[i].absorption_coefficient + atmosphere_model.layers[i].scattering_coefficient);
+	}
+
+	return;
+}
+
+inline void RadiativeTransfer::computeAtmosphericProperties(AtmosphereModel& atmosphere_model)
+{
+	atmosphere_model.diluent = configuration.diluent;
+
+	if(configuration.z_edge.size() > 0)
+	{
+		atmosphere_model.layers.resize(configuration.z_edge.size() - 1);
+	}
+	else if(configuration.z_center.size() > 0)
+	{
+		atmosphere_model.layers.resize(configuration.z_center.size());
+	}
+	else
+	{
+		throw std::runtime_error("Altitude coordinate not specified.");
+	}
+
+	for(int i = 0; i < atmosphere_model.layers.size(); i ++)
+	{
+		Layer layer;
+
+		if(configuration.enable_atmospheric_emission == true)
+		{
+			layer.enable_atmospheric_emission = true;
+		}
+		else
+		{
+			layer.enable_atmospheric_emission = false;
+		}
+
+		if(configuration.z_edge.size() > 0)
+		{
+			layer.altitude_bottom = configuration.z_edge[i];
+			layer.altitude_top = configuration.z_edge[i + 1];
+			layer.altitude = 0.5 * (layer.altitude_bottom + layer.altitude_top);
+		}
+		else if(configuration.z_center.size() > 0)
+		{
+			layer.altitude = configuration.z_center[i];
+
+			if(i == 0)
+			{
+				layer.altitude_bottom = configuration.z_center[0];
+				layer.altitude_top = 0.5 * (configuration.z_center[0] + configuration.z_center[1]);
+			}
+			else if(i == configuration.z_center.size() - 1)
+			{
+				layer.altitude_bottom = 0.5 * (configuration.z_center[configuration.z_center.size() - 2] + configuration.z_center[configuration.z_center.size() - 1]);
+				layer.altitude_top = configuration.z_center[configuration.z_center.size() - 1];
+			}
+			else
+			{
+				layer.altitude_bottom = 0.5 * (configuration.z_center[i - 1] + configuration.z_center[i]);
+				layer.altitude_top = 0.5 * (configuration.z_center[i] + configuration.z_center[i + 1]);
+			}
+		}
+
+		layer.absorption_coefficient = 0.0;
+		layer.scattering_coefficient = 0.0;
+
+		layer.physical_thickness = layer.altitude_top - layer.altitude_bottom;
+		
+		if(configuration.is_same_temperature_layering_atmosphere == false)
+		{
+			if(configuration.vertical_temperature_profile == VerticalTemperatureProfile::VIRA_EQUATOR)
+			{
+				if(configuration.vertical_temperature_interpolation == VerticalProfileInterpolation::Exponential)
+				{
+					for(int j = 0; j < vira_equator.size() - 1; j ++)
+					{
+						if(vira_equator[j][0] * scaleUnit("km", "m") <= layer.altitude && layer.altitude <= vira_equator[j + 1][0] * scaleUnit("km", "m"))
+						{
+							double logp0 = std::log(vira_equator[j][1] * scaleUnit("K", "K"));
+							double logp1 = std::log(vira_equator[j + 1][1] * scaleUnit("K", "K"));
+							double r = (layer.altitude - vira_equator[j][0] * scaleUnit("km", "m")) / (vira_equator[j + 1][0] * scaleUnit("km", "m") - vira_equator[j][0] * scaleUnit("km", "m"));
+							layer.temperature = std::exp((1.0 - r) * logp0 + r * logp1);
+							break;
+						}
+					}
+				}
+				else
+				{
+					for(int j = 0; j < vira_equator.size() - 1; j ++)
+					{
+						if(vira_equator[j][0] * scaleUnit("km", "m") <= layer.altitude && layer.altitude <= vira_equator[j + 1][0] * scaleUnit("km", "m"))
+						{
+							double r = (layer.altitude - vira_equator[j][0] * scaleUnit("km", "m")) / (vira_equator[j + 1][0] * scaleUnit("km", "m") - vira_equator[j][0] * scaleUnit("km", "m"));
+							layer.temperature = (1.0 - r) * vira_equator[j][1] * scaleUnit("K", "K") + r * vira_equator[j + 1][1] * scaleUnit("K", "K");
+							break;
+						}
+					}
+				}
+			}
+			else if(configuration.vertical_temperature_profile == VerticalTemperatureProfile::VIRA_45)
+			{
+				if(configuration.vertical_temperature_interpolation == VerticalProfileInterpolation::Exponential)
+				{
+					for(int j = 0; j < vira_45.size() - 1; j ++)
+					{
+						if(vira_45[j][0] * scaleUnit("km", "m") <= layer.altitude && layer.altitude <= vira_45[j + 1][0] * scaleUnit("km", "m"))
+						{
+							double logp0 = std::log(vira_45[j][1] * scaleUnit("K", "K"));
+							double logp1 = std::log(vira_45[j + 1][1] * scaleUnit("K", "K"));
+							double r = (layer.altitude - vira_45[j][0] * scaleUnit("km", "m")) / (vira_45[j + 1][0] * scaleUnit("km", "m") - vira_45[j][0] * scaleUnit("km", "m"));
+							layer.temperature = std::exp((1.0 - r) * logp0 + r * logp1);
+							break;
+						}
+					}
+				}
+				else
+				{
+					for(int j = 0; j < vira_45.size() - 1; j ++)
+					{
+						if(vira_45[j][0] * scaleUnit("km", "m") <= layer.altitude && layer.altitude <= vira_45[j + 1][0] * scaleUnit("km", "m"))
+						{
+							double r = (layer.altitude - vira_45[j][0] * scaleUnit("km", "m")) / (vira_45[j + 1][0] * scaleUnit("km", "m") - vira_45[j][0] * scaleUnit("km", "m"));
+							layer.temperature = (1.0 - r) * vira_45[j][1] * scaleUnit("K", "K") + r * vira_45[j + 1][1] * scaleUnit("K", "K");
+							break;
+						}
+					}
+				}
+			}
+			else if(configuration.vertical_temperature_profile == VerticalTemperatureProfile::VIRA_60)
+			{
+				if(configuration.vertical_temperature_interpolation == VerticalProfileInterpolation::Exponential)
+				{
+					for(int j = 0; j < vira_60.size() - 1; j ++)
+					{
+						if(vira_60[j][0] * scaleUnit("km", "m") <= layer.altitude && layer.altitude <= vira_60[j + 1][0] * scaleUnit("km", "m"))
+						{
+							double logp0 = std::log(vira_60[j][1] * scaleUnit("K", "K"));
+							double logp1 = std::log(vira_60[j + 1][1] * scaleUnit("K", "K"));
+							double r = (layer.altitude - vira_60[j][0] * scaleUnit("km", "m")) / (vira_60[j + 1][0] * scaleUnit("km", "m") - vira_60[j][0] * scaleUnit("km", "m"));
+							layer.temperature = std::exp((1.0 - r) * logp0 + r * logp1);
+							break;
+						}
+					}
+				}
+				else
+				{
+					for(int j = 0; j < vira_60.size() - 1; j ++)
+					{
+						if(vira_60[j][0] * scaleUnit("km", "m") <= layer.altitude && layer.altitude <= vira_60[j + 1][0] * scaleUnit("km", "m"))
+						{
+							double r = (layer.altitude - vira_60[j][0] * scaleUnit("km", "m")) / (vira_60[j + 1][0] * scaleUnit("km", "m") - vira_60[j][0] * scaleUnit("km", "m"));
+							layer.temperature = (1.0 - r) * vira_60[j][1] * scaleUnit("K", "K") + r * vira_60[j + 1][1] * scaleUnit("K", "K");
+							break;
+						}
+					}
+				}
+			}
+			else if(configuration.vertical_temperature_profile == VerticalTemperatureProfile::Table)
+			{
+				if(configuration.vertical_temperature_interpolation == VerticalProfileInterpolation::Linear)
+				{
+					for(int j = 0; j < configuration.temperature_profile.size() - 1; j ++)
+					{
+						if(configuration.temperature_profile[j][0] <= layer.altitude && layer.altitude <= configuration.temperature_profile[j + 1][0])
+						{
+							double r = (layer.altitude - configuration.temperature_profile[j][0]) / (configuration.temperature_profile[j + 1][0] - configuration.temperature_profile[j][0]);
+							layer.temperature = (1.0 - r) * configuration.temperature_profile[j][1] + r * configuration.temperature_profile[j + 1][1];
+							break;
+						}
+					}
+				}
+				else if(configuration.vertical_temperature_interpolation == VerticalProfileInterpolation::Exponential)
+				{
+					for(int j = 0; j < configuration.temperature_profile.size() - 1; j ++)
+					{
+						if(configuration.temperature_profile[j][0] <= layer.altitude && layer.altitude <= configuration.temperature_profile[j + 1][0])
+						{
+							double logp0 = std::log(configuration.temperature_profile[j][1]);
+							double logp1 = std::log(configuration.temperature_profile[j + 1][1]);
+							double r = (layer.altitude - configuration.temperature_profile[j][0]) / (configuration.temperature_profile[j + 1][0] - configuration.temperature_profile[j][0]);
+							layer.temperature = std::exp((1.0 - r) * logp0 + r * logp1);
+							break;
+						}
+					}
+				}
+			}
+			else if(configuration.vertical_temperature_profile == VerticalTemperatureProfile::External)
+			{
+				// configuration.output_log << "CURRENTRY EXTERNAL INPUT IS NOT SUPPORTED" << std::endl;
+			}
+		}
+		else
+		{
+			layer.temperature = configuration.temperature_profile[i][1];
+		}
+
+		if(configuration.is_same_pressure_layering_atmosphere == false)
+		{
+			if(configuration.vertical_pressure_profile == VerticalPressureProfile::VIRA_EQUATOR)
+			{
+				if(configuration.vertical_pressure_interpolation == VerticalProfileInterpolation::Exponential)
+				{
+					for(int j = 0; j < vira_equator.size() - 1; j ++)
+					{
+						if(vira_equator[j][0] * scaleUnit("km", "m") <= layer.altitude && layer.altitude <= vira_equator[j + 1][0] * scaleUnit("km", "m"))
+						{
+							double logp0 = std::log(vira_equator[j][2] * scaleUnit("bar", "Pa"));
+							double logp1 = std::log(vira_equator[j + 1][2] * scaleUnit("bar", "Pa"));
+							double r = (layer.altitude - vira_equator[j][0] * scaleUnit("km", "m")) / (vira_equator[j + 1][0] * scaleUnit("km", "m") - vira_equator[j][0] * scaleUnit("km", "m"));
+							layer.pressure = std::exp((1.0 - r) * logp0 + r * logp1);
+							break;
+						}
+					}
+				}
+				else
+				{
+					for(int j = 0; j < vira_equator.size() - 1; j ++)
+					{
+						if(vira_equator[j][0] * scaleUnit("km", "m") <= layer.altitude && layer.altitude <= vira_equator[j + 1][0] * scaleUnit("km", "m"))
+						{
+							double r = (layer.altitude - vira_equator[j][0] * scaleUnit("km", "m")) / (vira_equator[j + 1][0] * scaleUnit("km", "m") - vira_equator[j][0] * scaleUnit("km", "m"));
+							layer.pressure = (1.0 - r) * vira_equator[j][2] * scaleUnit("bar", "Pa") + r * vira_equator[j + 1][2] * scaleUnit("bar", "Pa");
+							break;
+						}
+					}
+				}
+			}
+			else if(configuration.vertical_pressure_profile == VerticalPressureProfile::VIRA_45)
+			{
+				if(configuration.vertical_pressure_interpolation == VerticalProfileInterpolation::Exponential)
+				{
+					for(int j = 0; j < vira_45.size() - 1; j ++)
+					{
+						if(vira_45[j][0] * scaleUnit("km", "m") <= layer.altitude && layer.altitude <= vira_45[j + 1][0] * scaleUnit("km", "m"))
+						{
+							double logp0 = std::log(vira_45[j][2] * scaleUnit("bar", "Pa"));
+							double logp1 = std::log(vira_45[j + 1][2] * scaleUnit("bar", "Pa"));
+							double r = (layer.altitude - vira_45[j][0] * scaleUnit("km", "m")) / (vira_45[j + 1][0] * scaleUnit("km", "m") - vira_45[j][0] * scaleUnit("km", "m"));
+							layer.pressure = std::exp((1.0 - r) * logp0 + r * logp1);
+							break;
+						}
+					}
+				}
+				else
+				{
+					for(int j = 0; j < vira_45.size() - 1; j ++)
+					{
+						if(vira_45[j][0] * scaleUnit("km", "m") <= layer.altitude && layer.altitude <= vira_45[j + 1][0] * scaleUnit("km", "m"))
+						{
+							double r = (layer.altitude - vira_45[j][0] * scaleUnit("km", "m")) / (vira_45[j + 1][0] * scaleUnit("km", "m") - vira_45[j][0] * scaleUnit("km", "m"));
+							layer.pressure = (1.0 - r) * vira_45[j][2] * scaleUnit("bar", "Pa") + r * vira_45[j + 1][2] * scaleUnit("bar", "Pa");
+							break;
+						}
+					}
+				}
+			}
+			else if(configuration.vertical_pressure_profile == VerticalPressureProfile::VIRA_60)
+			{
+				if(configuration.vertical_pressure_interpolation == VerticalProfileInterpolation::Exponential)
+				{
+					for(int j = 0; j < vira_60.size() - 1; j ++)
+					{
+						if(vira_60[j][0] * scaleUnit("km", "m") <= layer.altitude && layer.altitude <= vira_60[j + 1][0] * scaleUnit("km", "m"))
+						{
+							double logp0 = std::log(vira_60[j][2] * scaleUnit("bar", "Pa"));
+							double logp1 = std::log(vira_60[j + 1][2] * scaleUnit("bar", "Pa"));
+							double r = (layer.altitude - vira_60[j][0] * scaleUnit("km", "m")) / (vira_60[j + 1][0] * scaleUnit("km", "m") - vira_60[j][0] * scaleUnit("km", "m"));
+							layer.pressure = std::exp((1.0 - r) * logp0 + r * logp1);
+							break;
+						}
+					}
+				}
+				else
+				{
+					for(int j = 0; j < vira_60.size() - 1; j ++)
+					{
+						if(vira_60[j][0] * scaleUnit("km", "m") <= layer.altitude && layer.altitude <= vira_60[j + 1][0] * scaleUnit("km", "m"))
+						{
+							double r = (layer.altitude - vira_60[j][0] * scaleUnit("km", "m")) / (vira_60[j + 1][0] * scaleUnit("km", "m") - vira_60[j][0] * scaleUnit("km", "m"));
+							layer.pressure = (1.0 - r) * vira_60[j][2] * scaleUnit("bar", "Pa") + r * vira_60[j + 1][2] * scaleUnit("bar", "Pa");
+							break;
+						}
+					}
+				}
+			}
+			else if(configuration.vertical_pressure_profile == VerticalPressureProfile::Table)
+			{
+				if(configuration.vertical_pressure_interpolation == VerticalProfileInterpolation::Linear)
+				{
+					for(int j = 0; j < configuration.pressure_profile.size() - 1; j ++)
+					{
+						if(configuration.pressure_profile[j][0] <= layer.altitude && layer.altitude <= configuration.pressure_profile[j + 1][0])
+						{
+							double r = (layer.altitude - configuration.pressure_profile[j][0]) / (configuration.pressure_profile[j + 1][0] - configuration.pressure_profile[j][0]);
+							layer.pressure = (1.0 - r) * configuration.pressure_profile[j][1] + r * configuration.pressure_profile[j + 1][1];
+							break;
+						}
+					}
+				}
+				else if(configuration.vertical_pressure_interpolation == VerticalProfileInterpolation::Exponential)
+				{
+					for(int j = 0; j < configuration.pressure_profile.size() - 1; j ++)
+					{
+						if(configuration.pressure_profile[j][0] <= layer.altitude && layer.altitude <= configuration.pressure_profile[j + 1][0])
+						{
+							double logp0 = std::log(configuration.pressure_profile[j][1]);
+							double logp1 = std::log(configuration.pressure_profile[j + 1][1]);
+							double r = (layer.altitude - configuration.pressure_profile[j][0]) / (configuration.pressure_profile[j + 1][0] - configuration.pressure_profile[j][0]);
+							layer.pressure = std::exp((1.0 - r) * logp0 + r * logp1);
+							break;
+						}
+					}
+				}
+			}
+			else if(configuration.vertical_pressure_profile == VerticalPressureProfile::External)
+			{
+				// configuration.output_log << "CURRENTRY EXTERNAL INPUT IS NOT SUPPORTED" << std::endl;
+			}
+			else if(configuration.vertical_pressure_profile == VerticalPressureProfile::Hydrostatic)
+			{
+				// configuration.output_log << "CURRENTRY HYDROSTATIC IS NOT SUPPORTED" << std::endl;
+			}
+		}
+		else
+		{
+			layer.pressure = configuration.pressure_profile[i][1];
+		}
+
+		//Ideal Gas Law PV=nRT n(mol)/V(m^3) = P(N/m^2)/(R(N.m/K/mol)*T(K)) n(molecules/m^3)=NA*P*/(R*T)
+		if(configuration.vertical_number_density_profile == VerticalNumberDensityProfile::IdealGas)
+		{
+			layer.number_density = layer.pressure * AVOGADRO_CONSTANT / (MOLAR_GAS_CONSTANT * layer.temperature);
+		}
+		else
+		{
+			if(configuration.is_same_number_density_layering_atmosphere == false)
+			{
+				if(configuration.vertical_number_density_profile == VerticalNumberDensityProfile::VIRA_EQUATOR)
+				{
+					if(configuration.vertical_number_density_interpolation == VerticalProfileInterpolation::Exponential)
+					{
+						for(int j = 0; j < vira_equator.size() - 1; j ++)
+						{
+							if(vira_equator[j][0] * scaleUnit("km", "m") <= layer.altitude && layer.altitude <= vira_equator[j + 1][0] * scaleUnit("km", "m"))
+							{
+								double logp0 = std::log(vira_equator[j][3] * scaleUnit("m-3", "m-3"));
+								double logp1 = std::log(vira_equator[j + 1][3] * scaleUnit("m-3", "m-3"));
+								double r = (layer.altitude - vira_equator[j][0] * scaleUnit("km", "m")) / (vira_equator[j + 1][0] * scaleUnit("km", "m") - vira_equator[j][0] * scaleUnit("km", "m"));
+								layer.number_density = std::exp((1.0 - r) * logp0 + r * logp1);
+								break;
+							}
+						}
+					}
+					else
+					{
+						for(int j = 0; j < vira_equator.size() - 1; j ++)
+						{
+							if(vira_equator[j][0] * scaleUnit("km", "m") <= layer.altitude && layer.altitude <= vira_equator[j + 1][0] * scaleUnit("km", "m"))
+							{
+								double r = (layer.altitude - vira_equator[j][0] * scaleUnit("km", "m")) / (vira_equator[j + 1][0] * scaleUnit("km", "m") - vira_equator[j][0] * scaleUnit("km", "m"));
+								layer.number_density = (1.0 - r) * vira_equator[j][3] * scaleUnit("m-3", "m-3") + r * vira_equator[j + 1][3] * scaleUnit("m-3", "m-3");
+								break;
+							}
+						}
+					}
+				}
+				else if(configuration.vertical_number_density_profile == VerticalNumberDensityProfile::VIRA_45)
+				{
+					if(configuration.vertical_number_density_interpolation == VerticalProfileInterpolation::Exponential)
+					{
+						for(int j = 0; j < vira_45.size() - 1; j ++)
+						{
+							if(vira_45[j][0] * scaleUnit("km", "m") <= layer.altitude && layer.altitude <= vira_45[j + 1][0] * scaleUnit("km", "m"))
+							{
+								double logp0 = std::log(vira_45[j][3] * scaleUnit("m-3", "m-3"));
+								double logp1 = std::log(vira_45[j + 1][3] * scaleUnit("m-3", "m-3"));
+								double r = (layer.altitude - vira_45[j][0] * scaleUnit("km", "m")) / (vira_45[j + 1][0] * scaleUnit("km", "m") - vira_45[j][0] * scaleUnit("km", "m"));
+								layer.number_density = std::exp((1.0 - r) * logp0 + r * logp1);
+								break;
+							}
+						}
+					}
+					else
+					{
+						for(int j = 0; j < vira_45.size() - 1; j ++)
+						{
+							if(vira_45[j][0] * scaleUnit("km", "m") <= layer.altitude && layer.altitude <= vira_45[j + 1][0] * scaleUnit("km", "m"))
+							{
+								double r = (layer.altitude - vira_45[j][0] * scaleUnit("km", "m")) / (vira_45[j + 1][0] * scaleUnit("km", "m") - vira_45[j][0] * scaleUnit("km", "m"));
+								layer.number_density = (1.0 - r) * vira_45[j][3] * scaleUnit("m-3", "m-3") + r * vira_45[j + 1][3] * scaleUnit("m-3", "m-3");
+								break;
+							}
+						}
+					}
+				}
+				else if(configuration.vertical_number_density_profile == VerticalNumberDensityProfile::VIRA_60)
+				{
+					if(configuration.vertical_number_density_interpolation == VerticalProfileInterpolation::Exponential)
+					{
+						for(int j = 0; j < vira_60.size() - 1; j ++)
+						{
+							if(vira_60[j][0] * scaleUnit("km", "m") <= layer.altitude && layer.altitude <= vira_60[j + 1][0] * scaleUnit("km", "m"))
+							{
+								double logp0 = std::log(vira_60[j][3] * scaleUnit("m-3", "m-3"));
+								double logp1 = std::log(vira_60[j + 1][3] * scaleUnit("m-3", "m-3"));
+								double r = (layer.altitude - vira_60[j][0] * scaleUnit("km", "m")) / (vira_60[j + 1][0] * scaleUnit("km", "m") - vira_60[j][0] * scaleUnit("km", "m"));
+								layer.number_density = std::exp((1.0 - r) * logp0 + r * logp1);
+								break;
+							}
+						}
+					}
+					else
+					{
+						for(int j = 0; j < vira_60.size() - 1; j ++)
+						{
+							if(vira_60[j][0] * scaleUnit("km", "m") <= layer.altitude && layer.altitude <= vira_60[j + 1][0] * scaleUnit("km", "m"))
+							{
+								double r = (layer.altitude - vira_60[j][0] * scaleUnit("km", "m")) / (vira_60[j + 1][0] * scaleUnit("km", "m") - vira_60[j][0] * scaleUnit("km", "m"));
+								layer.number_density = (1.0 - r) * vira_60[j][3] * scaleUnit("m-3", "m-3") + r * vira_60[j + 1][3] * scaleUnit("m-3", "m-3");
+								break;
+							}
+						}
+					}
+				}
+				else if(configuration.vertical_number_density_profile == VerticalNumberDensityProfile::Table)
+				{
+					if(configuration.vertical_number_density_interpolation == VerticalProfileInterpolation::Linear)
+					{
+						for(int j = 0; j < configuration.number_density_profile.size() - 1; j ++)
+						{
+							if(configuration.number_density_profile[j][0] <= layer.altitude && layer.altitude <= configuration.number_density_profile[j + 1][0])
+							{
+								double r = (layer.altitude - configuration.number_density_profile[j][0]) / (configuration.number_density_profile[j + 1][0] - configuration.number_density_profile[j][0]);
+								layer.number_density = (1.0 - r) * configuration.number_density_profile[j][1] + r * configuration.number_density_profile[j + 1][1];
+								break;
+							}
+						}
+					}
+					else if(configuration.vertical_number_density_interpolation == VerticalProfileInterpolation::Exponential)
+					{
+						for(int j = 0; j < configuration.number_density_profile.size() - 1; j ++)
+						{
+							if(configuration.number_density_profile[j][0] <= layer.altitude && layer.altitude <= configuration.number_density_profile[j + 1][0])
+							{
+								double logp0 = std::log(configuration.number_density_profile[j][1]);
+								double logp1 = std::log(configuration.number_density_profile[j + 1][1]);
+								double r = (layer.altitude - configuration.number_density_profile[j][0]) / (configuration.number_density_profile[j + 1][0] - configuration.number_density_profile[j][0]);
+								layer.number_density = std::exp((1.0 - r) * logp0 + r * logp1);
+								break;
+							}
+						}
+					}
+				}
+				else if(configuration.vertical_number_density_profile == VerticalNumberDensityProfile::External)
+				{
+					// configuration.output_log << "CURRENTRY EXTERNAL INPUT IS NOT SUPPORTED" << std::endl;
+				}
+			}
+			else
+			{
+				if(configuration.unit_dim_number_density == UnitDim::NumberDensity)
+				{
+					layer.number_density = configuration.number_density_profile[i][1];
+				}
+				else if(configuration.unit_dim_number_density == UnitDim::ColumnNumberDensity)
+				{
+					layer.number_density = configuration.number_density_profile[i][1] / layer.physical_thickness;
+				}
+			}
+		}
+		// std::cout << layer.number_density << std::endl;
+
+		//optical profiles
+		layer.scattering_phase_function.resize(configuration.n_scattering_angle);
+		double dtheta = PI / double(configuration.n_scattering_angle - 1);
+
+		//output_log << layer.physical_thickness << std::endl;
+
+		for(int j = 0; j < configuration.n_scattering_angle; j ++)
+		{
+			layer.scattering_phase_function[j].resize(2);
+			layer.scattering_phase_function[j][0] = dtheta * double(j);
+			layer.scattering_phase_function[j][1] = 0.0;
+			//output_log << layer.scattering_phase_function[j][0] << ", " << layer.scattering_phase_function[j][1] << std::endl;
+		}
+
+		atmosphere_model.layers[i] = layer;
+	}
+
+	return;
+}
+
+inline void RadiativeTransfer::computeSpeciesProperties(AtmosphereModel& atmosphere_model)
+{
+	atmosphere_model.species = configuration.species;
+
+	for(int i = 0; i < atmosphere_model.layers.size(); i ++)
+	{
+		for(int j = 0; j < atmosphere_model.species.size(); j ++)
+		{
+			double nd_sp;	//molecule/m^3
+			double q;
+			if(atmosphere_model.species[j].is_same_layering_atmosphere == true)
+			{
+				if(atmosphere_model.species[j].vertical_profile_type == VerticalProfileType::MixingRatio)
+				{
+					q = atmosphere_model.species[j].vertical_profile[i][1];
+					nd_sp = atmosphere_model.layers[i].number_density * q;
+				}
+				else if(atmosphere_model.species[j].vertical_profile_type == VerticalProfileType::NumberDensity)
+				{
+					nd_sp = atmosphere_model.species[j].vertical_profile[i][1];
+					q = nd_sp / atmosphere_model.layers[i].number_density;
+				}
+				else if(atmosphere_model.species[j].vertical_profile_type == VerticalProfileType::ColumnNumberDensity)
+				{
+					nd_sp = atmosphere_model.species[j].vertical_profile[i][1] / atmosphere_model.layers[i].physical_thickness;
+					q = nd_sp / atmosphere_model.layers[i].number_density;
+				}
+			}
+			else
+			{
+				if(atmosphere_model.species[j].vertical_profile_type == VerticalProfileType::MixingRatio)
+				{
+					q = atmosphere_model.species[j].computeMixingRatio(atmosphere_model.layers[i].altitude);
+					nd_sp = q * atmosphere_model.layers[i].number_density;
+				}
+				else if(atmosphere_model.species[j].vertical_profile_type == VerticalProfileType::NumberDensity)
+				{
+					nd_sp = atmosphere_model.species[j].computeNumberDensity(atmosphere_model.layers[i].altitude);
+					q = nd_sp / atmosphere_model.layers[i].number_density;
+				}
+			}
+
+			atmosphere_model.layers[i].mixing_ratio_species.push_back(q);
+			atmosphere_model.layers[i].number_density_species.push_back(nd_sp);
+		}
+	}
+
+	return;
+}
+
+inline void RadiativeTransfer::validateAtmosphererModel(const AtmosphereModel& atmosphere_model)
+{
+	if(!atmosphere_model.Ntheta.has_value())
+	{
+		throw std::runtime_error("[FATAL] Grid of zenith angle is not set.");
+	}
+
+	if(!atmosphere_model.M.has_value())
+	{
+		throw std::runtime_error("[FATAL] Number of Fourier expansion is not set.");
+	}
+
+	if(!atmosphere_model.Nphi.has_value())
+	{
+		throw std::runtime_error("[FATAL] Grid of azimuth angle is not set.");
+	}
+
+	if(atmosphere_model.layers.empty())
+	{
+		throw std::runtime_error("[FATAL] Atmosphere Model has no layer.");
+	}
+
+
+	return;
+}
+
+inline double computeAsymmetryParameter(const std::vector<std::vector<double>>& f)
+{
+	double g = 0.0;
+
+	int n = f.size();
+
+	double num = 0.0;
+	double den = 0.0;
+
+	// double dtheta = f[1][0] - f[0][0];
+
+	for(int i = 0; i < n; i ++)
+	{
+		double theta = f[i][0];
+		double mu = std::cos(theta);
+		double sine = std::sin(theta);
+
+		// std::cout << theta * 180.0 / PI << ", " << f[i][1] << std::endl;
+
+		if(i == 0 || i == n - 1)
+		{
+			num += f[i][1] * mu * sine;
+			den += f[i][1] * sine;
+		}
+		else
+		{
+			num += 2.0 * f[i][1] * mu * sine;
+			den += 2.0 * f[i][1] * sine;
+		}
+	}
+
+	g = num / den;
+
+	return g;
+}
+
+}

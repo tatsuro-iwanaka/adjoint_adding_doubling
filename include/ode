@@ -1,0 +1,336 @@
+#pragma once
+
+#include <iostream>
+#include <filesystem>
+#include <sstream>
+#include <vector>
+#include <string>
+#include <cmath>
+#include <queue>
+#include <fstream>
+#include <iomanip>
+#include <algorithm>
+#include <numeric>
+#include <functional>
+#include <Eigen/Dense>
+// #include<omp.h>
+#include <logger>
+
+namespace ode
+{
+
+inline Eigen::MatrixXd computeJacobian2nd(const std::function<Eigen::VectorXd(double, const Eigen::VectorXd&)>& f, double t, const Eigen::VectorXd& y)
+{
+	const int n = y.size();
+	const double eps = std::sqrt(std::numeric_limits<double>::epsilon());
+	Eigen::MatrixXd J = Eigen::MatrixXd::Zero(n, n);
+
+	for(int j = 0; j < n; ++j)
+	{
+		double h = eps * std::max(1.0, std::abs(y(j)));
+		if(h == 0.0)
+		{
+			h = eps;
+		}
+
+		Eigen::VectorXd y_ph = y;
+		Eigen::VectorXd y_mh = y;
+
+		y_ph(j) += h;
+		y_mh(j) -= h;
+
+		Eigen::VectorXd f_ph = f(t, y_ph);
+		Eigen::VectorXd f_mh = f(t, y_mh);
+
+		J.col(j) = (f_ph - f_mh) / (2.0 * h);
+	}
+
+	return J;
+}
+
+inline Eigen::MatrixXd computeJacobian4th(const std::function<Eigen::VectorXd(double, const Eigen::VectorXd&)>& f, double t, const Eigen::VectorXd& y)
+{
+	const int n = y.size();
+	const double eps = std::numeric_limits<double>::epsilon();
+	const double h0 = std::pow(eps, 1.0 / 5.0);
+	Eigen::MatrixXd J = Eigen::MatrixXd::Zero(n, n);
+
+	// #pragma omp parallel for
+	for (int j = 0; j < n; ++j)
+	{
+		// レースコンディションを避けるため、一時変数はループ内で宣言
+		Eigen::VectorXd f_m2, f_m1, f_p1, f_p2;
+		
+		double h = h0 * std::max(1.0, std::abs(y(j)));
+		if (h == 0.0)
+		{
+			h = h0;
+		}
+
+		Eigen::VectorXd y_m2 = y; y_m2(j) -= 2.0 * h;
+		Eigen::VectorXd y_m1 = y; y_m1(j) -= h;
+		Eigen::VectorXd y_p1 = y; y_p1(j) += h;
+		Eigen::VectorXd y_p2 = y; y_p2(j) += 2.0 * h;
+
+		f_m2 = f(t, y_m2);
+		f_m1 = f(t, y_m1);
+		f_p1 = f(t, y_p1);
+		f_p2 = f(t, y_p2);
+
+		J.col(j) = (f_m2 - 8.0 * f_m1 + 8.0 * f_p1 - f_p2) / (12.0 * h);
+	}
+	return J;
+}
+
+enum class JacobianType{Analytic, Numerical_2nd, Numerical_4th};
+
+class ODE
+{
+	public:
+		ODE() = default;
+		virtual ~ODE() = default;
+		virtual Eigen::VectorXd f(double, const Eigen::VectorXd&) = 0;
+		virtual Eigen::MatrixXd J(double, const Eigen::VectorXd&);
+};
+
+class IntegratorOptions
+{
+	public:
+		double rtol = 1e-8; // 相対許容誤差
+		double atol = 1e-14; // 絶対許容誤差
+		double safety = 0.5; // ステップ幅制御の安全係数 (元のコードに合わせました)
+		double alpha_min = 0.1; // ステップ幅の最小変化率
+		double alpha_max = 5.0; // ステップ幅の最大変化率
+		double h_initial = -1.0; // 初期ステップ幅 (-1.0 の場合は自動計算)
+};
+
+class Stepper
+{
+	public:
+		virtual ~Stepper() = default;
+		virtual Eigen::VectorXd step(ODE& ode, double t, const Eigen::VectorXd& y, double h) = 0;
+		virtual int order() const = 0; // 誤差制御のための次数
+};
+
+class ExplicitRK4Stepper : public Stepper
+{
+	public:
+		int order() const override;
+
+		Eigen::VectorXd step(ODE&, double, const Eigen::VectorXd&, double) override;
+};
+
+class ImplicitRK4Stepper : public Stepper
+{
+	private:
+		JacobianType jacobian_type_;
+
+	public:
+		ImplicitRK4Stepper(JacobianType);
+
+		int order() const override;
+		Eigen::VectorXd step(ODE&, double, const Eigen::VectorXd&, double) override;
+};
+
+class Solution
+{
+	public:
+		std::vector<double> t;
+		std::vector<Eigen::VectorXd> y;
+
+		Solution(void);
+};
+
+class Solver
+{
+	private:
+		Stepper& stepper_;
+		ODE& ode_;
+		IntegratorOptions options_;
+
+	public:
+		Solver(Stepper&, ODE&, const IntegratorOptions&);
+		Solution solve(double, const Eigen::VectorXd&, double);
+
+		logger::Log logger;
+};
+
+inline Eigen::MatrixXd ODE::J(double t, const Eigen::VectorXd& y)
+{
+	throw std::runtime_error("Error: J() called with Analytic type but not overridden.");
+	return Eigen::MatrixXd::Zero(y.size(), y.size());
+}
+
+inline int ExplicitRK4Stepper::order(void) const
+{
+	return 4;
+}
+
+inline Eigen::VectorXd ExplicitRK4Stepper::step(ODE& ode, double t, const Eigen::VectorXd& y, double h)
+{
+	Eigen::VectorXd k1 = ode.f(t, y);
+	Eigen::VectorXd k2 = ode.f(t + 0.5 * h, y + 0.5 * h * k1);
+	Eigen::VectorXd k3 = ode.f(t + 0.5 * h, y + 0.5 * h * k2);
+	Eigen::VectorXd k4 = ode.f(t + h, y + h * k3);
+
+	return y + (h / 6.0) * (k1 + 2.0 * k2 + 2.0 * k3 + k4);
+}
+
+inline ImplicitRK4Stepper::ImplicitRK4Stepper(JacobianType jacobian_type = JacobianType::Analytic) : jacobian_type_(jacobian_type)
+{
+	return;
+}
+
+inline int ImplicitRK4Stepper::order(void) const
+{
+	return 4;
+}
+
+inline Eigen::VectorXd ImplicitRK4Stepper::step(ODE& ode, double t, const Eigen::VectorXd& y, double h)
+{
+	int N = y.size();
+	
+	double c1 = 0.5 - std::sqrt(3.0) / 6.0;
+	double c2 = 0.5 + std::sqrt(3.0) / 6.0;
+	double a11 = 0.25;
+	double a12 = 0.25 - std::sqrt(3.0) / 6.0;
+	double a21 = 0.25 + std::sqrt(3.0) / 6.0;
+	double a22 = 0.25;
+	double b1 = 0.5;
+	double b2 = 0.5;
+	int dim = 2 * N;
+
+	Eigen::VectorXd Z(dim);
+	Eigen::VectorXd f0 = ode.f(t, y);
+	Z.head(N) = f0;
+	Z.tail(N) = f0;
+
+	Eigen::VectorXd F(dim);
+	Eigen::VectorXd delta(dim);
+	Eigen::VectorXd y1(N);
+	Eigen::VectorXd y2(N);
+
+	Eigen::MatrixXd DF(dim, dim);
+	Eigen::MatrixXd I_N = Eigen::MatrixXd::Identity(N, N);
+
+	auto getJacobian = [&](double t_j, const Eigen::VectorXd& y_j) -> Eigen::MatrixXd
+	{
+		switch (this->jacobian_type_)
+		{
+			case JacobianType::Analytic:
+				return ode.J(t_j, y_j);
+
+			case JacobianType::Numerical_2nd:
+				return computeJacobian2nd([&](auto t, auto y){ return ode.f(t,y); }, t_j, y_j);
+
+			case JacobianType::Numerical_4th:
+				return computeJacobian4th([&](auto t, auto y){ return ode.f(t,y); }, t_j, y_j);
+		}
+		
+		throw std::runtime_error("Invalid JacobianType in ImplicitRK4Stepper.");
+	};
+
+	for(int iter = 0; iter < 20; ++iter)
+	{
+		y1 = y + h * (a11 * Z.head(N) + a12 * Z.tail(N));
+		y2 = y + h * (a21 * Z.head(N) + a22 * Z.tail(N));
+
+		auto f1 = ode.f(t + c1 * h, y1);
+		auto f2 = ode.f(t + c2 * h, y2);
+		auto J1 = getJacobian(t + c1 * h, y1);
+		auto J2 = getJacobian(t + c2 * h, y2);
+
+		F.head(N) = Z.head(N) - f1;
+		F.tail(N) = Z.tail(N) - f2;
+
+		DF.block(0, 0, N, N) = I_N - h * a11 * J1;
+		DF.block(0, N, N, N) = -h * a12 * J1;
+		DF.block(N, 0, N, N) = -h * a21 * J2;
+		DF.block(N, N, N, N) = I_N - h * a22 * J2;
+
+		delta = DF.partialPivLu().solve(-F);
+		Z += delta;
+
+		if(delta.norm() < 1.0E-8)
+		{
+			break;
+		}
+	}
+
+	return y + h * (b1 * Z.head(N) + b2 * Z.tail(N));
+}
+
+inline Solver::Solver(Stepper& stepper, ODE& ode, const IntegratorOptions& options = IntegratorOptions()) : stepper_(stepper), ode_(ode), options_(options)
+{
+	// logger.addSink();
+	return;
+}
+
+inline Solution::Solution(void)
+{
+	t.clear();
+	y.clear();
+
+	return;
+}
+
+inline Solution Solver::solve(double t_start, const Eigen::VectorXd& y_initial, double t_end)
+{
+	Solution solution;
+	double t = t_start;
+	Eigen::VectorXd y = y_initial;
+	solution.t.push_back(t);
+	solution.y.push_back(y);
+
+	const int p = stepper_.order();
+	const double order_exp = 1.0 / static_cast<double>(p + 1);
+
+	double h;
+	if(options_.h_initial > 0)
+	{
+		h = options_.h_initial;
+	}
+	else
+	{
+		Eigen::VectorXd f0 = ode_.f(t_start, y_initial);
+		double fnorm = f0.norm();
+		h = options_.safety * std::pow(options_.rtol / std::max(fnorm, 1.0E-16), order_exp);
+	}
+
+	logger::Timer timer(logger, "ode::Solver::solve", "step", logger::Level::Debug);
+
+	while(t < t_end)
+	{
+		timer.startTimer();
+		logger.logstream(logger::Level::Debug, "ode::Solver::solve") << "time = " << t << ", dt = " << h;
+		if(t + h > t_end)
+		{
+			h = t_end - t;
+		}
+
+		Eigen::VectorXd y_full = stepper_.step(ode_, t, y, h);
+		Eigen::VectorXd y_half1 = stepper_.step(ode_, t, y, h * 0.5);
+		Eigen::VectorXd y_half = stepper_.step(ode_, t + h * 0.5, y_half1, h * 0.5);
+
+		int N = y.size();
+		Eigen::ArrayXd sc = options_.atol + options_.rtol * y_full.array().abs().max(y_half.array().abs());
+		Eigen::ArrayXd e = (y_half - y_full).array().abs() / sc;
+		double err = e.matrix().norm() / std::sqrt(static_cast<double>(N));
+
+		if(err <= 1.0)
+		{
+			t += h;
+			y = y_half;
+			solution.t.push_back(t);
+			solution.y.push_back(y);
+		}
+
+		double h_new = options_.safety * h * std::pow(1.0 / std::max(err, 1.0E-16), order_exp);
+		h = std::min(std::max(h_new, options_.alpha_min * h), options_.alpha_max * h);
+		timer.stopTimer();
+	}
+
+	return solution;
+}
+
+}

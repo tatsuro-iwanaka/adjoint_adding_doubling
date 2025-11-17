@@ -1,0 +1,1268 @@
+#pragma once
+
+#include<filesystem>
+#include<fstream>
+#include<vector>
+#include<string>
+#include<iomanip>
+#include<cmath>
+
+#include<Eigen/Dense>
+#include<netcdf>
+
+#include"types"
+#include"constants"
+#include"spline"
+
+namespace radiative_transfer
+{
+
+double GlobalAlbedo(std::vector<std::vector<std::vector<double>>>, Geometry);
+std::vector<std::vector<double>> interpolateReflectance(const std::vector<double>&, const Layer&, const Geometry&);
+std::vector<std::vector<double>> interpolateTransmittanceDiffusion(const std::vector<double>&, const Layer&, const Geometry&);
+std::vector<std::vector<double>> interpolateTransmittanceTotal(const std::vector<double>&, const Layer&, const Geometry&);
+std::vector<double> interpolateThermalEmission(const std::vector<double>&, const Layer&, const Geometry&);
+std::vector<double> computeHemisphericalReflectance(const std::vector<double>&, const Layer&, const Geometry&);
+std::vector<double> computeHemisphericalTransmittanceDiffusion(const std::vector<double>&, const Layer&, const Geometry&);
+std::vector<double> computeHemisphericalTransmittanceTotal(const std::vector<double>&, const Layer&, const Geometry&);
+
+inline void Layer::exportPhaseFunction(std::string filename)
+{
+	std::ofstream output(filename);
+
+	for(int i = 0; i < scattering_phase_function.size(); i ++)
+	{
+		output << std::fixed << std::setprecision(15) << std::scientific << scattering_phase_function[i][0] << ", " << scattering_phase_function[i][1] << std::endl;
+	}
+
+	return;
+}
+
+inline void RadiativeTransfer::exportResultNetCDF(std::string filename)
+{
+	netCDF::NcFile outputFile(filename, netCDF::NcFile::replace);
+
+	//Simulation configuration
+	outputFile.putAtt("simulation_name", configuration.simulation_name);
+
+	// 次元の定義
+	Nphi = Ntheta * 2;
+	int Nmode = M;
+	int Nlayer = result.altitude.size();
+	
+	if(configuration.is_wavenumber == true)
+	{
+		int n_wavenumber = result.wavenumber.size();
+
+		netCDF::NcDim dim_theta_e = outputFile.addDim("theta_e", Ntheta);
+		netCDF::NcDim dim_theta_i = outputFile.addDim("theta_i", Ntheta);
+		netCDF::NcDim dim_phi = outputFile.addDim("delta_phi", Nphi);
+		netCDF::NcDim dim_M = outputFile.addDim("M", Nmode + 1);
+		netCDF::NcDim dim_layer = outputFile.addDim("layer", Nlayer);
+		netCDF::NcDim dim_wavenumber = outputFile.addDim("wavenumber", n_wavenumber);
+
+		std::vector<double> phi;
+		std::vector<int> _M;
+		
+		for(int i = 0; i < Nphi; i ++)
+		{
+			phi.push_back(PI / double(Nphi - 1) * double(i));
+		}
+
+		for(int i = 0; i < Nmode + 1; i ++)
+		{
+			_M.push_back(i);
+		}
+
+		netCDF::NcVar var_theta_e = outputFile.addVar("theta_e", netCDF::ncDouble, dim_theta_e);
+		var_theta_e.setCompression(true, true, 5);
+		var_theta_e.putAtt("long_name", "emission zenith angle");
+		var_theta_e.putAtt("units", "radian");
+		var_theta_e.putVar(result.theta_e.data());
+		netCDF::NcVar var_theta_i = outputFile.addVar("theta_i", netCDF::ncDouble, dim_theta_i);
+		var_theta_i.setCompression(true, true, 5);
+		var_theta_i.putAtt("long_name", "incidence zenith angle");
+		var_theta_i.putAtt("units", "radian");
+		var_theta_i.putVar(result.theta_i.data());
+		netCDF::NcVar var_phi = outputFile.addVar("delta_phi", netCDF::ncDouble, dim_phi);
+		var_phi.setCompression(true, true, 5);
+		var_phi.putAtt("long_name", "azimuthal difference");
+		var_phi.putAtt("units", "radian");
+		var_phi.putVar(phi.data());
+		netCDF::NcVar var_M = outputFile.addVar("M", netCDF::ncInt, dim_M);
+		var_M.setCompression(true, true, 5);
+		var_M.putAtt("long_name", "Fourier modes");
+		var_M.putAtt("units", "dimensionless");
+		var_M.putVar(_M.data());
+		netCDF::NcVar var_wavenumber = outputFile.addVar("wavenumber", netCDF::ncDouble, dim_wavenumber);
+		var_wavenumber.setCompression(true, true, 5);
+		var_wavenumber.putAtt("long_name", "wavenumber");
+		var_wavenumber.putAtt("units", "m-1");
+		var_wavenumber.putVar(result.wavenumber.data());
+
+		std::vector<double> reflectance_flat(n_wavenumber * Ntheta * Ntheta * Nphi);
+
+		for(int l = 0; l < n_wavenumber; l ++)
+		{
+			for(int e = 0; e < Ntheta; e ++)
+			{
+				for(int i = 0; i < Ntheta; i ++)
+				{
+					for(int p = 0; p < Nphi; p ++)
+					{
+						int idx = l * (Ntheta * Ntheta * Nphi) + e * (Ntheta * Nphi) + i * Nphi + p;
+
+						double r = result.reflectance_m_top_cos[l][0](e, i);
+
+						for(int m = 1; m <= geometry.M; m ++)
+						{
+							double rcos = result.reflectance_m_top_cos[l][m](e, i);
+							double rsin = result.reflectance_m_top_sin[l][m](e, i);
+
+							r += 2.0 * (rcos * std::cos(double(m) * phi[p]) + rsin * std::sin(double(m) * phi[p]));
+						}
+
+						reflectance_flat[idx] = r;
+					}
+				}
+			}
+		}
+
+		netCDF::NcVar var_reflectance = outputFile.addVar("reflectance", netCDF::ncDouble, {dim_wavenumber, dim_theta_e, dim_theta_i, dim_phi});
+		var_reflectance.setCompression(true, true, 5);
+		var_reflectance.putAtt("long_name", "reflectance (wavenumber, emission zenith angle, incidence zenith angle, azimuthal difference)");
+		var_reflectance.putAtt("units", "dimensionless");
+		var_reflectance.putVar(reflectance_flat.data());
+
+		std::vector<double> reflectance_am(n_wavenumber * (Nmode + 1) * Ntheta * Ntheta);
+		std::vector<double> reflectance_bm(n_wavenumber * (Nmode + 1) * Ntheta * Ntheta);
+
+		for(int l = 0; l < n_wavenumber; l ++)
+		{
+			for(int m = 0; m < Nmode + 1; m ++)
+			{
+				for(int e = 0; e < Ntheta; e ++)
+				{
+					for(int i = 0; i < Ntheta; i ++)
+					{
+						int idx = l * ((Nmode + 1) * Ntheta * Ntheta) + m * (Ntheta * Ntheta) + e * Ntheta + i;
+
+						reflectance_am[idx] = result.reflectance_m_top_cos[l][m](e, i);
+						reflectance_bm[idx] = result.reflectance_m_top_sin[l][m](e, i);
+					}
+				}
+			}
+		}
+
+		netCDF::NcVar var_reflectance_am = outputFile.addVar("reflectance_am", netCDF::ncDouble, {dim_wavenumber, dim_M, dim_theta_e, dim_theta_i});
+		var_reflectance_am.setCompression(true, true, 5);
+		var_reflectance_am.putAtt("long_name", "Fourier cosine coefficients a_m for azimuthal expansion of reflectance.");
+		var_reflectance_am.putAtt("units", "dimensionless");
+		var_reflectance_am.putVar(reflectance_am.data());
+
+		netCDF::NcVar var_reflectance_bm = outputFile.addVar("reflectance_bm", netCDF::ncDouble, {dim_wavenumber, dim_M, dim_theta_e, dim_theta_i});
+		var_reflectance_bm.setCompression(true, true, 5);
+		var_reflectance_bm.putAtt("long_name", "Fourier sine coefficients b_m for azimuthal expansion of reflectance.");
+		var_reflectance_bm.putAtt("units", "dimensionless");
+		var_reflectance_bm.putVar(reflectance_bm.data());
+
+		std::vector<double> tau, ka, ks, omega, g;
+		for(int l = 0; l < n_wavenumber; l ++)
+		{
+			for(int i = 0; i < Nlayer; i ++)
+			{
+				tau.push_back(result.optical_thickness[l][i]);
+				ka.push_back(result.absorption_coefficient[l][i]);
+				ks.push_back(result.scattering_coefficient[l][i]);
+				omega.push_back(result.single_scattering_albedo[l][i]);
+				g.push_back(result.asymmetry_parameter[l][i]);
+			}
+		}
+
+		// std::cout << "thru" << std::endl;
+
+		netCDF::NcVar var_z = outputFile.addVar("altitude", netCDF::ncDouble, dim_layer);
+		var_z.putAtt("long_name", "altitude of center of layer");
+		var_z.putAtt("units", "m");
+		var_z.putVar(result.altitude.data());
+		netCDF::NcVar var_z_top = outputFile.addVar("altitude_top", netCDF::ncDouble, dim_layer);
+		var_z_top.putAtt("long_name", "altitude of top of layer");
+		var_z_top.putAtt("units", "m");
+		var_z_top.putVar(result.altitude_top.data());
+		netCDF::NcVar var_z_bottom = outputFile.addVar("altitude_bottom", netCDF::ncDouble, dim_layer);
+		var_z_bottom.putAtt("long_name", "altitude of bottom of layer");
+		var_z_bottom.putAtt("units", "m");
+		var_z_bottom.putVar(result.altitude_bottom.data());
+		netCDF::NcVar var_physical_thickness = outputFile.addVar("physical_thickness", netCDF::ncDouble, dim_layer);
+		var_physical_thickness.putAtt("long_name", "physical thickness of layer");
+		var_physical_thickness.putAtt("units", "m");
+		var_physical_thickness.putVar(result.physical_thickness.data());
+		netCDF::NcVar var_T = outputFile.addVar("temperature", netCDF::ncDouble, dim_layer);
+		var_T.putAtt("long_name", "temperature");
+		var_T.putAtt("units", "K");
+		var_T.putVar(result.temperature.data());
+		netCDF::NcVar var_P = outputFile.addVar("pressure", netCDF::ncDouble, dim_layer);
+		var_P.putAtt("long_name", "pressure");
+		var_P.putAtt("units", "Pa");
+		var_P.putVar(result.pressure.data());
+		netCDF::NcVar var_ND = outputFile.addVar("number_density", netCDF::ncDouble, dim_layer);
+		var_ND.putAtt("long_name", "number density");
+		var_ND.putAtt("units", "molecule/m^3");
+		var_ND.putVar(result.number_density.data());
+
+		if(configuration.enable_atmospheric_emission == true)
+		{
+			netCDF::NcVar var_emission = outputFile.addVar("thermal_emission", netCDF::ncDouble, {dim_wavenumber, dim_theta_e});
+			var_emission.setCompression(true, true, 5);
+			var_emission.putAtt("long_name", "atmospheric emission (wavenumber, emission direction)");
+			var_emission.putAtt("units", "W/m2/sr/m-1");
+
+			std::vector<double> source_up;
+			for(int l = 0; l < n_wavenumber; l ++)
+			{
+				for(int e = 0; e < Ntheta; e ++)
+				{
+					source_up.push_back(result.source_up[l](e));
+				}
+			}
+
+			var_emission.putVar(source_up.data());
+		}
+
+		netCDF::NcVar var_ka = outputFile.addVar("absorption_coefficient", netCDF::ncDouble, {dim_wavenumber, dim_layer});
+		var_ka.putAtt("long_name", "absorption coefficient ka");
+		var_ka.putAtt("units", "1/m");
+		var_ka.putVar(ka.data());
+		netCDF::NcVar var_ks = outputFile.addVar("scattering_coefficient", netCDF::ncDouble, {dim_wavenumber, dim_layer});
+		var_ks.putAtt("long_name", "scattering coefficient ks");
+		var_ks.putAtt("units", "1/m");
+		var_ks.putVar(ks.data());
+		netCDF::NcVar var_tau = outputFile.addVar("optical_thickness", netCDF::ncDouble, {dim_wavenumber, dim_layer});
+		var_tau.putAtt("long_name", "optical thickness: dz * (ks + ka)");
+		var_tau.putAtt("units", "dimensionless");
+		var_tau.putVar(tau.data());
+		netCDF::NcVar var_omega = outputFile.addVar("single_scattering_albedo", netCDF::ncDouble, {dim_wavenumber, dim_layer});
+		var_omega.putAtt("long_name", "single scattering albedo: ks/(ks + ka)");
+		var_omega.putAtt("units", "dimensionless");
+		var_omega.putVar(omega.data());
+		netCDF::NcVar var_g = outputFile.addVar("asymmetry_parameter", netCDF::ncDouble, {dim_wavenumber, dim_layer});
+		var_g.putAtt("long_name", "asymmetry parameter");
+		var_g.putAtt("units", "dimensionless");
+		var_g.putVar(g.data());
+		
+		int n_species = configuration.species.size();
+		netCDF::NcVar var_n_species = outputFile.addVar("n_species", netCDF::ncInt);
+		var_n_species.putAtt("long_name", "number of species");
+		var_n_species.putVar(&n_species);
+
+
+		//group for species
+		for(int i = 0; i < configuration.species.size(); i ++)
+		{
+			netCDF::NcGroup group = outputFile.addGroup("species_" + std::to_string(i + 1));
+
+			group.putAtt("name", configuration.species[i].name);		
+
+			if(configuration.species[i].is_same_layering_atmosphere == false)
+			{
+				netCDF::NcVar var_mixing_ratio = group.addVar("mixing_ratio", netCDF::ncDouble, dim_layer);
+				var_mixing_ratio.putAtt("long_name", "mixing ratio");
+				var_mixing_ratio.putAtt("units", "dimensionless");
+				std::vector<double> mixing_ratio;
+				for(int nz = 0; nz < Nlayer; nz ++)
+				{
+					if(configuration.species[i].vertical_profile_type == VerticalProfileType::MixingRatio)
+					{
+						mixing_ratio.push_back(configuration.species[i].computeMixingRatio(result.altitude[nz]));
+					}
+					else if(configuration.species[i].vertical_profile_type == VerticalProfileType::NumberDensity)
+					{
+						mixing_ratio.push_back(configuration.species[i].computeNumberDensity(result.altitude[nz]) / result.number_density[nz]);
+					}
+				}
+				var_mixing_ratio.putVar(mixing_ratio.data());
+
+				netCDF::NcVar var_species_number_density = group.addVar("species_number_density", netCDF::ncDouble, dim_layer);
+				var_species_number_density.putAtt("long_name", "number density");
+				var_species_number_density.putAtt("units", "molecule/m^3");
+				std::vector<double> nd;
+				for(int nz = 0; nz < Nlayer; nz ++)
+				{
+					if(configuration.species[i].vertical_profile_type == VerticalProfileType::MixingRatio)
+					{
+						nd.push_back(configuration.species[i].computeMixingRatio(result.altitude[nz]) * result.number_density[nz]);
+					}
+					else if(configuration.species[i].vertical_profile_type == VerticalProfileType::NumberDensity)
+					{
+						nd.push_back(configuration.species[i].computeNumberDensity(result.altitude[nz]));
+					}
+				}
+				
+				var_species_number_density.putVar(nd.data());
+			}
+			else
+			{
+				netCDF::NcVar var_mixing_ratio = group.addVar("mixing_ratio", netCDF::ncDouble, dim_layer);
+				var_mixing_ratio.putAtt("long_name", "mixing ratio");
+				var_mixing_ratio.putAtt("units", "dimensionless");
+				std::vector<double> mixing_ratio;
+				for(int nz = 0; nz < Nlayer; nz ++)
+				{
+					if(configuration.species[i].vertical_profile_type == VerticalProfileType::MixingRatio)
+					{
+						mixing_ratio.push_back(configuration.species[i].vertical_profile[nz][1]);
+					}
+					else if(configuration.species[i].vertical_profile_type == VerticalProfileType::NumberDensity)
+					{
+						mixing_ratio.push_back(configuration.species[i].vertical_profile[nz][1] / result.number_density[nz]);
+					}
+					else if(configuration.species[i].vertical_profile_type == VerticalProfileType::ColumnNumberDensity)
+					{
+						mixing_ratio.push_back(configuration.species[i].vertical_profile[nz][1] / result.physical_thickness[nz] / result.number_density[nz]);
+					}
+				}
+				var_mixing_ratio.putVar(mixing_ratio.data());
+
+				netCDF::NcVar var_species_number_density = group.addVar("species_number_density", netCDF::ncDouble, dim_layer);
+				var_species_number_density.putAtt("long_name", "number density");
+				var_species_number_density.putAtt("units", "molecule/m^3");
+				std::vector<double> nd;
+				for(int nz = 0; nz < Nlayer; nz ++)
+				{
+					if(configuration.species[i].vertical_profile_type == VerticalProfileType::MixingRatio)
+					{
+						nd.push_back(configuration.species[i].vertical_profile[nz][1] * result.number_density[nz]);
+					}
+					else if(configuration.species[i].vertical_profile_type == VerticalProfileType::NumberDensity)
+					{
+						nd.push_back(configuration.species[i].vertical_profile[nz][1]);
+					}
+					else if(configuration.species[i].vertical_profile_type == VerticalProfileType::ColumnNumberDensity)
+					{
+						nd.push_back(configuration.species[i].vertical_profile[nz][1] / result.physical_thickness[nz]);
+					}
+				}
+				
+				var_species_number_density.putVar(nd.data());
+			}
+		}
+	}
+	else
+	{
+		int Nlambda = result.wavelength.size();
+
+		netCDF::NcDim dim_theta_e = outputFile.addDim("theta_e", Ntheta);
+		netCDF::NcDim dim_theta_i = outputFile.addDim("theta_i", Ntheta);
+		netCDF::NcDim dim_phi = outputFile.addDim("delta_phi", Nphi);
+		netCDF::NcDim dim_M = outputFile.addDim("M", Nmode + 1);
+		netCDF::NcDim dim_layer = outputFile.addDim("layer", Nlayer);
+		netCDF::NcDim dim_wavelength = outputFile.addDim("wavelength", Nlambda);
+
+		std::vector<double> phi;
+		std::vector<int> _M;
+		
+		for(int i = 0; i < Nphi; i ++)
+		{
+			phi.push_back(PI / double(Nphi - 1) * double(i));
+		}
+
+		for(int i = 0; i < Nmode + 1; i ++)
+		{
+			_M.push_back(i);
+		}
+
+		netCDF::NcVar var_theta_e = outputFile.addVar("theta_e", netCDF::ncDouble, dim_theta_e);
+		var_theta_e.setCompression(true, true, 5);
+		var_theta_e.putAtt("long_name", "emission zenith angle");
+		var_theta_e.putAtt("units", "radian");
+		var_theta_e.putVar(result.theta_e.data());
+		netCDF::NcVar var_theta_i = outputFile.addVar("theta_i", netCDF::ncDouble, dim_theta_i);
+		var_theta_i.setCompression(true, true, 5);
+		var_theta_i.putAtt("long_name", "incidence zenith angle");
+		var_theta_i.putAtt("units", "radian");
+		var_theta_i.putVar(result.theta_i.data());
+		netCDF::NcVar var_phi = outputFile.addVar("delta_phi", netCDF::ncDouble, dim_phi);
+		var_phi.setCompression(true, true, 5);
+		var_phi.putAtt("long_name", "azimuthal difference");
+		var_phi.putAtt("units", "radian");
+		var_phi.putVar(phi.data());
+		netCDF::NcVar var_M = outputFile.addVar("M", netCDF::ncInt, dim_M);
+		var_M.setCompression(true, true, 5);
+		var_M.putAtt("long_name", "Fourier modes");
+		var_M.putAtt("units", "dimensionless");
+		var_M.putVar(_M.data());
+		netCDF::NcVar var_wavelength = outputFile.addVar("wavelength", netCDF::ncDouble, dim_wavelength);
+		var_wavelength.setCompression(true, true, 5);
+		var_wavelength.putAtt("long_name", "wavelength");
+		var_wavelength.putAtt("units", "m");
+		var_wavelength.putVar(result.wavelength.data());
+
+		std::vector<double> reflectance_flat(Nlambda * Ntheta * Ntheta * Nphi);
+
+		for(int l = 0; l < Nlambda; l ++)
+		{
+			for(int e = 0; e < Ntheta; e ++)
+			{
+				for(int i = 0; i < Ntheta; i ++)
+				{
+					for(int p = 0; p < Nphi; p ++)
+					{
+						int idx = l * (Ntheta * Ntheta * Nphi) + e * (Ntheta * Nphi) + i * Nphi + p;
+
+						double r = result.reflectance_m_top_cos[l][0](e, i);
+
+						for(int m = 1; m <= geometry.M; m ++)
+						{
+							double rcos = result.reflectance_m_top_cos[l][m](e, i);
+							double rsin = result.reflectance_m_top_sin[l][m](e, i);
+
+							r += 2.0 * (rcos * std::cos(double(m) * phi[p]) + rsin * std::sin(double(m) * phi[p]));
+						}
+
+						reflectance_flat[idx] = r;
+					}
+				}
+			}
+		}
+
+		netCDF::NcVar var_reflectance = outputFile.addVar("reflectance", netCDF::ncDouble, {dim_wavelength, dim_theta_e, dim_theta_i, dim_phi});
+		var_reflectance.setCompression(true, true, 5);
+		var_reflectance.putAtt("long_name", "reflectance (wavelength, emission zenith angle, incidence zenith angle, azimuthal difference)");
+		var_reflectance.putAtt("units", "dimensionless");
+		var_reflectance.putVar(reflectance_flat.data());
+
+		std::vector<double> reflectance_am(Nlambda * (Nmode + 1) * Ntheta * Ntheta);
+		std::vector<double> reflectance_bm(Nlambda * (Nmode + 1) * Ntheta * Ntheta);
+
+		for(int l = 0; l < Nlambda; l ++)
+		{
+			for(int m = 0; m < Nmode + 1; m ++)
+			{
+				for(int e = 0; e < Ntheta; e ++)
+				{
+					for(int i = 0; i < Ntheta; i ++)
+					{
+						int idx = l * ((Nmode + 1) * Ntheta * Ntheta) + m * (Ntheta * Ntheta) + e * Ntheta + i;
+
+						reflectance_am[idx] = result.reflectance_m_top_cos[l][m](e, i);
+						reflectance_bm[idx] = result.reflectance_m_top_sin[l][m](e, i);
+					}
+				}
+			}
+		}
+
+		netCDF::NcVar var_reflectance_am = outputFile.addVar("reflectance_am", netCDF::ncDouble, {dim_wavelength, dim_M, dim_theta_e, dim_theta_i});
+		var_reflectance_am.setCompression(true, true, 5);
+		var_reflectance_am.putAtt("long_name", "Fourier cosine coefficients a_m for azimuthal expansion of reflectance.");
+		var_reflectance_am.putAtt("units", "dimensionless");
+		var_reflectance_am.putVar(reflectance_am.data());
+
+		netCDF::NcVar var_reflectance_bm = outputFile.addVar("reflectance_bm", netCDF::ncDouble, {dim_wavelength, dim_M, dim_theta_e, dim_theta_i});
+		var_reflectance_bm.setCompression(true, true, 5);
+		var_reflectance_bm.putAtt("long_name", "Fourier sine coefficients b_m for azimuthal expansion of reflectance.");
+		var_reflectance_bm.putAtt("units", "dimensionless");
+		var_reflectance_bm.putVar(reflectance_bm.data());
+
+		std::vector<double> tau, ka, ks, omega, g;
+		for(int l = 0; l < Nlambda; l ++)
+		{
+			for(int i = 0; i < Nlayer; i ++)
+			{
+				tau.push_back(result.optical_thickness[l][i]);
+				ka.push_back(result.absorption_coefficient[l][i]);
+				ks.push_back(result.scattering_coefficient[l][i]);
+				omega.push_back(result.single_scattering_albedo[l][i]);
+				g.push_back(result.asymmetry_parameter[l][i]);
+			}
+		}
+
+		// std::cout << "thru" << std::endl;
+
+		netCDF::NcVar var_z = outputFile.addVar("altitude", netCDF::ncDouble, dim_layer);
+		var_z.putAtt("long_name", "altitude of center of layer");
+		var_z.putAtt("units", "m");
+		var_z.putVar(result.altitude.data());
+		netCDF::NcVar var_z_top = outputFile.addVar("altitude_top", netCDF::ncDouble, dim_layer);
+		var_z_top.putAtt("long_name", "altitude of top of layer");
+		var_z_top.putAtt("units", "m");
+		var_z_top.putVar(result.altitude_top.data());
+		netCDF::NcVar var_z_bottom = outputFile.addVar("altitude_bottom", netCDF::ncDouble, dim_layer);
+		var_z_bottom.putAtt("long_name", "altitude of bottom of layer");
+		var_z_bottom.putAtt("units", "m");
+		var_z_bottom.putVar(result.altitude_bottom.data());
+		netCDF::NcVar var_physical_thickness = outputFile.addVar("physical_thickness", netCDF::ncDouble, dim_layer);
+		var_physical_thickness.putAtt("long_name", "physical thickness of layer");
+		var_physical_thickness.putAtt("units", "m");
+		var_physical_thickness.putVar(result.physical_thickness.data());
+		netCDF::NcVar var_T = outputFile.addVar("temperature", netCDF::ncDouble, dim_layer);
+		var_T.putAtt("long_name", "temperature");
+		var_T.putAtt("units", "K");
+		var_T.putVar(result.temperature.data());
+		netCDF::NcVar var_P = outputFile.addVar("pressure", netCDF::ncDouble, dim_layer);
+		var_P.putAtt("long_name", "pressure");
+		var_P.putAtt("units", "Pa");
+		var_P.putVar(result.pressure.data());
+		netCDF::NcVar var_ND = outputFile.addVar("number_density", netCDF::ncDouble, dim_layer);
+		var_ND.putAtt("long_name", "number density");
+		var_ND.putAtt("units", "molecule/m^3");
+		var_ND.putVar(result.number_density.data());
+
+		if(configuration.enable_atmospheric_emission == true)
+		{
+			netCDF::NcVar var_emission = outputFile.addVar("thermal_emission", netCDF::ncDouble, {dim_wavelength, dim_theta_e});
+			var_emission.setCompression(true, true, 5);
+			var_emission.putAtt("long_name", "atmospheric emission (wavelength, emission direction)");
+			var_emission.putAtt("units", "W/m2/sr/m");
+
+			std::vector<double> source_up;
+			for(int l = 0; l < Nlambda; l ++)
+			{
+				for(int e = 0; e < Ntheta; e ++)
+				{
+					source_up.push_back(result.source_up[l](e));
+				}
+			}
+
+			var_emission.putVar(source_up.data());
+		}
+
+		netCDF::NcVar var_ka = outputFile.addVar("absorption_coefficient", netCDF::ncDouble, {dim_wavelength, dim_layer});
+		var_ka.putAtt("long_name", "absorption coefficient ka");
+		var_ka.putAtt("units", "1/m");
+		var_ka.putVar(ka.data());
+		netCDF::NcVar var_ks = outputFile.addVar("scattering_coefficient", netCDF::ncDouble, {dim_wavelength, dim_layer});
+		var_ks.putAtt("long_name", "scattering coefficient ks");
+		var_ks.putAtt("units", "1/m");
+		var_ks.putVar(ks.data());
+		netCDF::NcVar var_tau = outputFile.addVar("optical_thickness", netCDF::ncDouble, {dim_wavelength, dim_layer});
+		var_tau.putAtt("long_name", "optical thickness: dz * (ks + ka)");
+		var_tau.putAtt("units", "dimensionless");
+		var_tau.putVar(tau.data());
+		netCDF::NcVar var_omega = outputFile.addVar("single_scattering_albedo", netCDF::ncDouble, {dim_wavelength, dim_layer});
+		var_omega.putAtt("long_name", "single scattering albedo: ks/(ks + ka)");
+		var_omega.putAtt("units", "dimensionless");
+		var_omega.putVar(omega.data());
+		netCDF::NcVar var_g = outputFile.addVar("asymmetry_parameter", netCDF::ncDouble, {dim_wavelength, dim_layer});
+		var_g.putAtt("long_name", "asymmetry parameter");
+		var_g.putAtt("units", "dimensionless");
+		var_g.putVar(g.data());
+		
+		int n_species = configuration.species.size();
+		netCDF::NcVar var_n_species = outputFile.addVar("n_species", netCDF::ncInt);
+		var_n_species.putAtt("long_name", "number of species");
+		var_n_species.putVar(&n_species);
+
+
+		//group for species
+		for(int i = 0; i < configuration.species.size(); i ++)
+		{
+			netCDF::NcGroup group = outputFile.addGroup("species_" + std::to_string(i + 1));
+
+			group.putAtt("name", configuration.species[i].name);		
+
+			netCDF::NcVar var_mixing_ratio = group.addVar("mixing_ratio", netCDF::ncDouble, dim_layer);
+			var_mixing_ratio.putAtt("long_name", "mixing ratio");
+			var_mixing_ratio.putAtt("units", "dimensionless");
+			std::vector<double> mixing_ratio;
+			for(int nz = 0; nz < Nlayer; nz ++)
+			{
+				if(configuration.species[i].vertical_profile_type == VerticalProfileType::MixingRatio)
+				{
+					mixing_ratio.push_back(configuration.species[i].computeMixingRatio(result.altitude[nz]));
+				}
+				else if(configuration.species[i].vertical_profile_type == VerticalProfileType::NumberDensity)
+				{
+					mixing_ratio.push_back(configuration.species[i].computeNumberDensity(result.altitude[nz]) / result.number_density[nz]);
+				}
+			}
+			var_mixing_ratio.putVar(mixing_ratio.data());
+
+			netCDF::NcVar var_species_number_density = group.addVar("species_number_density", netCDF::ncDouble, dim_layer);
+			var_species_number_density.putAtt("long_name", "number density");
+			var_species_number_density.putAtt("units", "molecule/m^3");
+			std::vector<double> nd;
+			for(int nz = 0; nz < Nlayer; nz ++)
+			{
+				if(configuration.species[i].vertical_profile_type == VerticalProfileType::MixingRatio)
+				{
+					nd.push_back(configuration.species[i].computeMixingRatio(result.altitude[nz]) * result.number_density[nz]);
+				}
+				else if(configuration.species[i].vertical_profile_type == VerticalProfileType::NumberDensity)
+				{
+					nd.push_back(configuration.species[i].computeNumberDensity(result.altitude[nz]));
+				}
+			}
+			var_species_number_density.putVar(nd.data());
+		}
+	}
+	
+	return;
+}
+
+inline std::string CalculationLogger::makeSimHeader(void)
+{
+	// std::format でラベル列を生成（タイトルケース & 左寄せ）
+	auto lbl = [](std::string_view s)
+	{
+		// 幅 17 の空白文字列を作って…
+		std::string out(25, ' ');
+		// 先頭から s の長さ分だけ上書き
+		out.replace(0, s.size(), s);
+		return out;
+	};
+
+	// ostringstream で連結
+	std::ostringstream oss;
+	oss << "------------------------ Simulation Setup ------------------------" << std::endl;
+	oss << lbl("Simulation name") << " : " << header.name   << std::endl;
+	// oss << lbl("Directions")      << " : " << header.n_dirs << std::endl;
+	oss << lbl("Zenith resolution")      << " : " << header.n_theta << std::endl;
+	oss << lbl("Azimuth resolution")      << " : " << header.n_phi << std::endl;
+	oss << lbl("Fourier expansion order")      << " : " << header.n_mode << std::endl;
+	oss << lbl("Number of layers")<< " : ";
+	oss << header.n_atm_layers + enableSurface << "  (";
+	oss << header.n_atm_layers << " atmosphere + " << enableSurface << " surface)\n";
+	oss << "------------------------------------------------------------------" << std::endl;
+
+	return oss.str();             // ← std::string を返す
+}
+
+inline void CalculationLogger::initialize(void)
+{
+	r_bond.resize(zenith_angle.size());
+	tdif_bond.resize(zenith_angle.size());
+	tdir_bond.resize(zenith_angle.size());
+
+	r = std::vector<std::vector<double>>(zenith_angle.size(), std::vector<double>(zenith_angle.size()));
+	tdif = std::vector<std::vector<double>>(zenith_angle.size(), std::vector<double>(zenith_angle.size()));
+	tdir = std::vector<std::vector<double>>(zenith_angle.size(), std::vector<double>(zenith_angle.size()));
+
+	return;
+}
+
+inline std::string CalculationLogger::makeLayerTable(void)
+{
+	std::ostringstream oss;
+	oss << "----------------------------------------------------------------------------------\n";
+	oss << " Lyr |    z_bot    z_top |   T (K) |  P (bar) |  n (m-3) |      tau omega | t (s) \n";
+	oss << "-----+-------------------+---------+----------+----------+----------------+-------\n";
+
+	for (const auto& r : layer_record)
+	{
+		char buf[128];
+
+		if (r.is_finished)
+		{
+			std::snprintf(buf, sizeof(buf),
+				" %3d | %8.1f %8.1f | %7.1f | %8.2e | %8.2e | %8.2e %5.3f | %5.1f\n",
+				static_cast<int>(r.idx),
+				r.z_bot,
+				r.z_top,
+				r.T,
+				r.P / 100000.0,
+				r.n,
+				r.tau,
+				r.omega,
+				r.dt_ms / 1000.0
+			);
+		}
+		else
+		{
+			std::snprintf(buf, sizeof(buf),
+				" %3d | %8.1f %8.1f | %7.1f | %8.2e | %8.2e | %8.2e %5.3f | calcu\n",
+				static_cast<int>(r.idx),
+				r.z_bot,
+				r.z_top,
+				r.T,
+				r.P / 100000.0,
+				r.n,
+				r.tau,
+				r.omega
+			);
+		}
+
+		oss << buf;
+	}
+
+	oss << "----------------------------------------------------------------------------------\n\n";
+	return oss.str();
+}
+
+inline std::string CalculationLogger::drawProgress(void)
+{
+	//std::cout << layer_record.size() - 1 << std::endl << std::flush;
+	std::ostringstream oss;
+	oss << "Layer " << layer_record.size() - 1 << " |";
+	for(int i = 0; i < layer_record[layer_record.size() - 1].n_now; i ++)
+	{
+		oss << ">";
+	}
+	for(int i = 0; i < layer_record[layer_record.size() - 1].n_tot - layer_record[layer_record.size() - 1].n_now; i ++)
+	{
+		oss << " ";
+	}
+	oss << "|  ";
+	oss << layer_record[layer_record.size() - 1].n_now << " / " << layer_record[layer_record.size() - 1].n_tot << std::endl;
+
+	return oss.str();
+}
+
+inline void CalculationLogger::setLayerParameters(Layer& layer, int nlayer)
+{
+	LayerRecord lr;
+	lr.idx = nlayer;
+	//lr.dt_ms = dt;
+	lr.z_bot = layer.altitude_bottom;
+	lr.z_top = layer.altitude_top;
+	lr.tau = layer.optical_thickness;
+	lr.n = layer.number_density;
+	lr.T = layer.temperature;
+	lr.P = layer.pressure;
+	lr.omega = layer.single_scattering_albedo;
+	//lr.has_E  = layer.enable_atmospheric_emission;
+	layer_record.push_back(lr);
+
+	return;
+}
+
+inline void CalculationLogger::printLog(std::string filename)
+{
+	std::ofstream output(filename);
+
+	output << makeSimHeader();
+	output << std::endl;
+	output << drawProgress();
+	output << makeLayerTable();
+	output << makeDirectionalSummary();
+
+	return;
+}
+
+inline std::string CalculationLogger::makeDirectionalSummary(void)
+{
+	std::string output;
+
+	if(is_finished)
+	{
+		int COLW = 9;
+		
+		output += "R(e, i) [Azimuthally averaged (m=0), TOA Upwelling]\n";
+		output += std::string(8 + zenith_angle.size() * COLW, '-') + '-' + '\n';
+		output += " e \\ i |";
+		for(int i = 0; i < zenith_angle.size(); i ++)
+		{
+			std::ostringstream oss;
+			oss << std::setw(COLW) << int(zenith_angle[i]);
+			output += oss.str();
+		}
+		output += '\n';
+		output += "-------+" + std::string(zenith_angle.size() * COLW, '-') + '-' + '\n';
+
+		for(int e = 0; e < zenith_angle.size(); e ++)
+		{
+			std::ostringstream oss;
+			oss << std::setw(6) << int(zenith_angle[e]) << " |";
+
+			for(int i = 0; i < zenith_angle.size(); i ++)
+			{
+				char buf[256];
+				std::snprintf(buf, sizeof(buf), "%*.*f", COLW, 4, r[e][i]);
+				oss << buf;
+			}
+			output += oss.str() + '\n';
+		}
+
+		output += "-------+" + std::string(zenith_angle.size() * COLW, '-') + "-\n";
+
+		output += "  Bond |";
+		
+		for(int i = 0; i < zenith_angle.size(); i ++)
+		{
+			std::ostringstream oss;
+			char buf[256];
+			std::snprintf(buf, sizeof(buf), "%*.*f", COLW, 4, r_bond[i]);
+			oss << buf;
+			output += oss.str();
+		}
+
+		output += '\n';
+
+		output += "--------" + std::string(zenith_angle.size() * COLW, '-') + "-\n";
+
+
+		if(enableSurface == false)
+		{
+			output += '\n';
+			output += "Tdiff(e, i) [Azimuthally averaged (m=0), BOA Downwelling]\n";
+			output += std::string(8 + zenith_angle.size() * COLW, '-') + '-' + '\n';
+			output += " e \\ i |";
+			for(int i = 0; i < zenith_angle.size(); i ++)
+			{
+				std::ostringstream oss;
+				oss << std::setw(COLW) << int(zenith_angle[i]);
+				output += oss.str();
+			}
+			output += '\n';
+			output += "-------+" + std::string(zenith_angle.size() * COLW, '-') + '-' + '\n';
+
+			for(int e = 0; e < zenith_angle.size(); e ++)
+			{
+				std::ostringstream oss;
+				oss << std::setw(6) << int(zenith_angle[e]) << " |";
+
+				for(int i = 0; i < zenith_angle.size(); i ++)
+				{
+					char buf[256];
+					std::snprintf(buf, sizeof(buf), "%*.*f", COLW, 4, tdif[e][i]);
+					oss << buf;
+				}
+				output += oss.str() + '\n';
+			}
+
+			output += "-------+" + std::string(zenith_angle.size() * COLW, '-') + "-\n";
+
+			output += "  Bond |";
+			
+			for(int i = 0; i < zenith_angle.size(); i ++)
+			{
+				std::ostringstream oss;
+				char buf[256];
+				std::snprintf(buf, sizeof(buf), "%*.*f", COLW, 4, tdif_bond[i]);
+				oss << buf;
+				output += oss.str();
+			}
+
+			output += '\n';
+
+			output += "--------" + std::string(zenith_angle.size() * COLW, '-') + "-\n";
+
+			output += '\n';
+			output += "Ttotal(e, i) [Azimuthally averaged (m=0), BOA Downwelling]\n";
+			output += std::string(8 + zenith_angle.size() * COLW, '-') + '-' + '\n';
+			output += " e \\ i |";
+			for(int i = 0; i < zenith_angle.size(); i ++)
+			{
+				std::ostringstream oss;
+				oss << std::setw(COLW) << int(zenith_angle[i]);
+				output += oss.str();
+			}
+			output += '\n';
+			output += "-------+" + std::string(zenith_angle.size() * COLW, '-') + '-' + '\n';
+
+			for(int e = 0; e < zenith_angle.size(); e ++)
+			{
+				std::ostringstream oss;
+				oss << std::setw(6) << int(zenith_angle[e]) << " |";
+
+				for(int i = 0; i < zenith_angle.size(); i ++)
+				{
+					char buf[256];
+					std::snprintf(buf, sizeof(buf), "%*.*f", COLW, 4, tdir[e][i]);
+					oss << buf;
+				}
+				output += oss.str() + '\n';
+			}
+
+			output += "-------+" + std::string(zenith_angle.size() * COLW, '-') + "-\n";
+
+			output += "  Bond |";
+			
+			for(int i = 0; i < zenith_angle.size(); i ++)
+			{
+				std::ostringstream oss;
+				char buf[256];
+				std::snprintf(buf, sizeof(buf), "%*.*f", COLW, 4, tdir_bond[i]);
+				oss << buf;
+				output += oss.str();
+			}
+
+			output += '\n';
+
+			output += "--------" + std::string(zenith_angle.size() * COLW, '-') + "-\n";
+		}
+
+		if(enableThenalEmission == true)
+		{
+			COLW = 11;
+			output += '\n';
+			output += "E(e) [TOA Upwelling, W/m2/sr/m]\n";
+
+			output += std::string(8 + zenith_angle.size() * COLW, '-') + '-' + '\n';
+			output += "     e |";
+			for(int i = 0; i < zenith_angle.size(); i ++)
+			{
+				std::ostringstream oss;
+				oss << std::setw(COLW) << int(zenith_angle[i]);
+				output += oss.str();
+			}
+			output += '\n';
+			output += "-------+" + std::string(zenith_angle.size() * COLW, '-') + '-' + '\n';
+
+			output += "  E(e) |";
+			
+			for(int i = 0; i < zenith_angle.size(); i ++)
+			{
+				std::ostringstream oss;
+				char buf[256];
+				std::snprintf(buf, sizeof(buf), "%*.*e", COLW, 3, e[i]);
+				oss << buf;
+				output += oss.str();
+			}
+
+			output += '\n';
+
+			output += "--------" + std::string(zenith_angle.size() * COLW, '-') + "-\n";
+		}
+	}
+
+	return output;
+}
+
+inline double GlobalAlbedo(std::vector<std::vector<std::vector<double>>> R, Geometry geometry)
+{
+	double sum = 0.0;
+
+	for(int e = 0; e < geometry.Ntheta; e ++)
+	{
+		for(int i = 0; i < geometry.Ntheta; i ++)
+		{
+			//sum += rt.result_layer.R_top[e][0][0] * rt.geometry.weight_uh(e) * rt.geometry.mu_uh(e) * 2.0;
+
+			// double dphi = geometry.phi[1] - geometry.phi[0];
+
+			for(int p = 0; p < geometry.Nphi; p ++)
+			{
+				sum += R[e][i][p] * geometry.d_phi * geometry.weight_uh(e) * geometry.mu_uh(e) * geometry.weight_lh(i) * geometry.mu_lh(i);
+			}
+		}
+	}
+
+	return sum / PI / PI;
+}
+
+inline std::vector<std::vector<double>> interpolateReflectance(const std::vector<double> &zenith_angle, const Layer &layer, const Geometry &geometry)
+{
+	std::vector<double> inangle(geometry.Ntheta);
+	std::vector<double> emangle(geometry.Ntheta);
+	std::vector<std::vector<double>> r = std::vector<std::vector<double>>(zenith_angle.size(), std::vector<double>(zenith_angle.size(), 0.0));
+
+	// #pragma omp parallel for
+	for(int i = 0; i < geometry.Ntheta; i ++)
+	{
+		inangle[i] = PI - geometry.theta_lh(i);
+		emangle[i] = geometry.theta_uh(i);
+	}
+
+	std::vector<spline::Spline> spline_i(zenith_angle.size());
+
+	for(int i = 0; i < zenith_angle.size(); i ++)
+	{
+		spline_i[i].x = emangle;
+		spline_i[i].f.resize(emangle.size());
+	}
+
+	// eを固定
+	// #pragma omp parallel for
+	for(int e = 0; e < geometry.Ntheta; e ++)
+	{
+		spline::Spline spline_e;
+		spline_e.x = inangle;
+		spline_e.f.resize(geometry.Ntheta);
+
+		// i方向で補間
+		for(int i = 0; i < geometry.Ntheta; i ++)
+		{
+			spline_e.f[i] = layer.reflectance_m_top_cos[0](e, i);
+		}
+
+		spline_e.makeNaturalSpline();
+
+		for(int i = 0; i < zenith_angle.size(); i ++)
+		{
+			spline_i[i].f[e] = spline_e.interpolation(zenith_angle[i]);
+		}
+	}
+
+	// #pragma omp parallel for
+	for(int i = 0; i < zenith_angle.size(); i ++)
+	{
+		spline_i[i].makeNaturalSpline();
+
+		for(int e = 0; e < zenith_angle.size(); e ++)
+		{
+			r[e][i] = spline_i[i].interpolation(zenith_angle[e]);
+		}
+	}
+
+	return r;
+}
+
+inline std::vector<std::vector<double>> interpolateTransmittanceDiffusion(const std::vector<double> &zenith_angle, const Layer &layer, const Geometry &geometry)
+{
+	std::vector<double> inangle(geometry.Ntheta);
+	std::vector<double> emangle(geometry.Ntheta);
+	std::vector<std::vector<double>> t = std::vector<std::vector<double>>(zenith_angle.size(), std::vector<double>(zenith_angle.size(), 0.0));
+
+	// #pragma omp parallel for
+	for(int i = 0; i < geometry.Ntheta; i ++)
+	{
+		inangle[i] = PI - geometry.theta_lh(i);
+		emangle[i] = PI - geometry.theta_lh(i);
+	}
+
+	std::vector<spline::Spline> spline_i(zenith_angle.size());
+
+	for(int i = 0; i < zenith_angle.size(); i ++)
+	{
+		spline_i[i].x = emangle;
+		spline_i[i].f.resize(emangle.size());
+	}
+
+	// eを固定
+	// #pragma omp parallel for
+	for(int e = 0; e < geometry.Ntheta; e ++)
+	{
+		spline::Spline spline_e;
+		spline_e.x = inangle;
+		spline_e.f.resize(geometry.Ntheta);
+
+		// i方向で補間
+		for(int i = 0; i < geometry.Ntheta; i ++)
+		{
+			spline_e.f[i] = layer.transmittance_m_top_cos[0](e, i);
+		}
+
+		spline_e.makeNaturalSpline();
+
+		for(int i = 0; i < zenith_angle.size(); i ++)
+		{
+			spline_i[i].f[e] = spline_e.interpolation(zenith_angle[i]);
+		}
+	}
+
+	// #pragma omp parallel for
+	for(int i = 0; i < zenith_angle.size(); i ++)
+	{
+		spline_i[i].makeNaturalSpline();
+
+		for(int e = 0; e < zenith_angle.size(); e ++)
+		{
+			t[e][i] = spline_i[i].interpolation(zenith_angle[e]);
+		}
+	}
+
+	return t;
+}
+
+inline std::vector<std::vector<double>> interpolateTransmittanceTotal(const std::vector<double> &zenith_angle, const Layer &layer, const Geometry &geometry)
+{
+	std::vector<double> inangle(geometry.Ntheta);
+	std::vector<double> emangle(geometry.Ntheta);
+	std::vector<std::vector<double>> t = std::vector<std::vector<double>>(zenith_angle.size(), std::vector<double>(zenith_angle.size(), 0.0));
+
+	// #pragma omp parallel for
+	for(int i = 0; i < geometry.Ntheta; i ++)
+	{
+		inangle[i] = PI - geometry.theta_lh(i);
+		emangle[i] = PI - geometry.theta_lh(i);
+	}
+
+	std::vector<spline::Spline> spline_i(zenith_angle.size());
+
+	for(int i = 0; i < zenith_angle.size(); i ++)
+	{
+		spline_i[i].x = emangle;
+		spline_i[i].f.resize(emangle.size());
+	}
+
+	// eを固定
+	// #pragma omp parallel for
+	for(int e = 0; e < geometry.Ntheta; e ++)
+	{
+		spline::Spline spline_e;
+		spline_e.x = inangle;
+		spline_e.f.resize(geometry.Ntheta);
+
+		// i方向で補間
+		for(int i = 0; i < geometry.Ntheta; i ++)
+		{
+			spline_e.f[i] = layer.transmittance_m_top_cos[0](e, i);
+		}
+
+		spline_e.makeNaturalSpline();
+
+		for(int i = 0; i < zenith_angle.size(); i ++)
+		{
+			spline_i[i].f[e] = spline_e.interpolation(zenith_angle[i]);
+		}
+	}
+
+	// #pragma omp parallel for
+	for(int i = 0; i < zenith_angle.size(); i ++)
+	{
+		spline_i[i].makeNaturalSpline();
+
+		for(int e = 0; e < zenith_angle.size(); e ++)
+		{
+			if(i == e)
+			{
+				t[e][i] = spline_i[i].interpolation(zenith_angle[e]) + std::exp(- layer.optical_thickness / std::abs(std::cos(zenith_angle[e])));
+			}
+			else
+			{
+				t[e][i] = spline_i[i].interpolation(zenith_angle[e]);
+			}
+		}
+	}
+
+	return t;
+}
+
+inline std::vector<double> interpolateThermalEmission(const std::vector<double> &zenith_angle, const Layer &layer, const Geometry &geometry)
+{
+	std::vector<double> emangle(geometry.Ntheta);
+	std::vector<double> te = std::vector<double>(zenith_angle.size());
+
+	// #pragma omp parallel for
+	for(int i = 0; i < geometry.Ntheta; i ++)
+	{
+		emangle[i] = geometry.theta_uh(i);
+	}
+
+	spline::Spline spline;
+	spline.x = emangle;
+	
+	for(int e = 0; e < geometry.Ntheta; e ++)
+	{
+		spline.f.push_back(layer.source_up(e));
+
+		//std::cout << layer.source_up(e) << std::endl;
+	}
+
+	spline.makeNaturalSpline();
+
+	// #pragma omp parallel for
+	for(int e = 0; e < zenith_angle.size(); e ++)
+	{
+		te[e] = spline.interpolation(zenith_angle[e]);
+	}
+
+	return te;
+}
+
+inline std::vector<double> computeHemisphericalReflectance(const std::vector<double> &inangle, const Layer &layer, const Geometry &geometry)
+{
+	std::vector<double> solar_zenith_angle(geometry.Ntheta);
+	std::vector<double> r(geometry.Ntheta);
+
+	// #pragma omp parallel for
+	for(int i = 0; i < geometry.Ntheta; i ++)
+	{
+		r[i] = 0.0;
+
+		solar_zenith_angle[i] = PI - geometry.theta_lh(i);
+
+		//std::cout << sphere.Nphi0[i] << ", " << sphere.face_uh[sphere.Nphi0[i]].position_polar[0] << ", " << sphere.face_uh[sphere.Nphi0[i]].position_polar[1] << std::endl;
+
+		for(int e = 0; e < geometry.Ntheta; e ++)
+		{
+			r[i] += layer.reflectance_m_top_cos[0](e, i) * geometry.weight_uh(e) * geometry.mu_uh(e);
+		}
+
+		r[i] *= 2.0;
+
+		//std::cout << solar_zenith_angle[i] << ", " << t[i] << std::endl;
+	}
+
+	spline::Spline spline;
+	spline.x = solar_zenith_angle;
+	spline.f = r;
+	spline.makeNaturalSpline();
+
+	std::vector<double> result(inangle.size());
+	for(int i = 0; i < inangle.size(); i ++)
+	{
+		result[i] = spline.interpolation(inangle[i]);
+	}
+
+	return result;
+}
+
+inline std::vector<double> computeHemisphericalTransmittanceTotal(const std::vector<double> &inangle, const Layer &layer, const Geometry &geometry)
+{
+	std::vector<double> solar_zenith_angle(geometry.Ntheta);
+	std::vector<double> t(geometry.Ntheta);
+
+	// #pragma omp parallel for
+	for(int i = 0; i < geometry.Ntheta; i ++)
+	{
+		t[i] = 0.0;
+
+		solar_zenith_angle[i] = PI - geometry.theta_lh(i);
+
+		//std::cout << sphere.Nphi0[i] << ", " << sphere.face_uh[sphere.Nphi0[i]].position_polar[0] << ", " << sphere.face_uh[sphere.Nphi0[i]].position_polar[1] << std::endl;
+
+		for(int e = 0; e < geometry.Ntheta; e ++)
+		{
+			t[i] += layer.transmittance_m_top_cos[0](e, i) * geometry.weight_lh(e) * geometry.mu_lh(e);
+		}
+
+		t[i] *= 2.0;
+
+		//std::cout << solar_zenith_angle[i] << ", " << t[i] << std::endl;
+	}
+
+	spline::Spline spline;
+	spline.x = solar_zenith_angle;
+	spline.f = t;
+	spline.makeNaturalSpline();
+
+	std::vector<double> result(inangle.size());
+	for(int i = 0; i < inangle.size(); i ++)
+	{
+		result[i] = spline.interpolation(inangle[i]) + std::exp(-layer.optical_thickness / std::cos(inangle[i]));
+		//std::cout << inangle[i] << ", " << spline.interpolation(inangle[i]) << ", " << std::exp(-layer.optical_thickness / std::cos(inangle[i])) << std::endl;
+	}
+
+	return result;
+}
+
+inline std::vector<double> computeHemisphericalTransmittanceDiffusion(const std::vector<double> &inangle, const Layer &layer, const Geometry &geometry)
+{
+	std::vector<double> solar_zenith_angle(geometry.Ntheta);
+	std::vector<double> t(geometry.Ntheta);
+
+	// #pragma omp parallel for
+	for(int i = 0; i < geometry.Ntheta; i ++)
+	{
+		t[i] = 0.0;
+
+		solar_zenith_angle[i] = PI - geometry.theta_lh(i);
+
+		//std::cout << sphere.Nphi0[i] << ", " << sphere.face_uh[sphere.Nphi0[i]].position_polar[0] << ", " << sphere.face_uh[sphere.Nphi0[i]].position_polar[1] << std::endl;
+
+		for(int e = 0; e < geometry.Ntheta; e ++)
+		{
+			t[i] += layer.transmittance_m_top_cos[0](e, i) * geometry.weight_lh(e) * geometry.mu_lh(e);
+		}
+
+		t[i] *= 2.0;
+
+		//std::cout << solar_zenith_angle[i] << ", " << t[i] << std::endl;
+	}
+
+	spline::Spline spline;
+	spline.x = solar_zenith_angle;
+	spline.f = t;
+	spline.makeNaturalSpline();
+
+	std::vector<double> result(inangle.size());
+	for(int i = 0; i < inangle.size(); i ++)
+	{
+		result[i] = spline.interpolation(inangle[i]);
+	}
+
+	return result;
+}
+
+}
