@@ -2949,7 +2949,7 @@ inline void Configuration::validateConfiguration(void)
 			}
 			else if(atmosphere.temperature_unit.size() == 1)
 			{
-				if(getUnitInfo(atmosphere.temperature_unit[0].value()).dim == UnitDim::Temperature != "K")
+				if(getUnitInfo(atmosphere.temperature_unit[0].value()).dim != UnitDim::Temperature)
 				{
 					throw std::runtime_error("[Configuration::validateConfiguration] Invalid temperature unit dimension.");
 				}
@@ -3122,6 +3122,7 @@ inline void Configuration::validateConfiguration(void)
 	}
 
 	//diluent
+
 	return;
 }
 
