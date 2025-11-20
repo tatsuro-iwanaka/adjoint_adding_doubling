@@ -14,19 +14,18 @@ namespace radiative_transfer
 {
 enum class UnitDim{Length, Area, Mass, Temperature, Pressure, NumberDensity, ColumnNumberDensity, Wavenumber, Dimensionless};
 
-enum class SpectralCoordinateDimenstion{Wavenumber, Wavelength, Frequency};
-const inline std::map<std::string, SpectralCoordinateDimenstion> map_spectral_coordinate_dimension =
+enum class SpectralCoordinateDimension{Wavenumber, Wavelength, Frequency};
+const inline std::map<std::string, SpectralCoordinateDimension> map_spectral_coordinate_dimension =
 {
-	{"WAVENUMBER",  SpectralCoordinateDimenstion::Wavenumber},
-	{"WAVELENGTH", SpectralCoordinateDimenstion::Wavelength},
-	{"FREQUENCY",  SpectralCoordinateDimenstion::Frequency}
+	{"WAVENUMBER",  SpectralCoordinateDimension::Wavenumber},
+	{"WAVELENGTH", SpectralCoordinateDimension::Wavelength},
+	{"FREQUENCY",  SpectralCoordinateDimension::Frequency}
 };
 
-enum class SpectralCoordinateType{Monochrome, Table, Spectrum, Bandpass};
+enum class SpectralCoordinateType{Monochrome, Spectrum, Bandpass};
 const inline std::map<std::string, SpectralCoordinateType> map_spectral_coordinate_type =
 {
 	{"MONOCHROME",  SpectralCoordinateType::Monochrome},
-	{"TABLE", SpectralCoordinateType::Table},
 	{"SPECTRUM",  SpectralCoordinateType::Spectrum},
 	{"BANDPASS", SpectralCoordinateType::Bandpass}
 };
@@ -65,15 +64,17 @@ const inline std::map<std::string, SpeciesType> map_species_type =
 	{"BOTH", SpeciesType::Extinction}
 };
 
-enum class ParticleSizeDistribution{Delta, Gaussian, Rectangular, LogNormal, External};
+enum class ParticleSizeDistribution{Delta, Rectangular, LogNormal, Gamma, ModifiedGamma, PowerLaw};
 const inline std::map<std::string, ParticleSizeDistribution> map_particle_size_distribution =
 {
-	{"DELTA",  ParticleSizeDistribution::Delta},
-	{"GAUSSIAN", ParticleSizeDistribution::Gaussian},
+	{"DELTA", ParticleSizeDistribution::Delta},
 	{"RECTANGULAR", ParticleSizeDistribution::Rectangular},
 	{"LOG_NORMAL", ParticleSizeDistribution::LogNormal},
 	{"LOGNORMAL", ParticleSizeDistribution::LogNormal},
-	{"EXTERNAL", ParticleSizeDistribution::External}
+	{"GAMMA", ParticleSizeDistribution::Gamma},
+	{"MODIFIED_GAMMA", ParticleSizeDistribution::ModifiedGamma},
+	{"MODIFIEDGAMMA", ParticleSizeDistribution::ModifiedGamma},
+	{"POWER_LAW", ParticleSizeDistribution::PowerLaw}
 };
 
 enum class VerticalProfileType{MixingRatio, NumberDensity, ColumnNumberDensity};
@@ -234,7 +235,7 @@ class UnitInfo
 		double to_si;  // この単位 → SI 基本単位への乗数
 };
 
-class Species
+struct Species
 {
 	// ヤコビアン計算に必要な最低限を残す
 	// 微小変化させるのはこのSpecies
@@ -244,50 +245,30 @@ class Species
 	// 数密度（混合比）の鉛直分布
 	// 複素屈折率の鉛直分布
 	// 吸収断面積，散乱断面積
-	private:
-		std::string name_;
-		SpeciesState species_state_;
-		SpeciesType species_type_;
-		ScatterType scatter_type_ ;
-
-		std::vector<std::vector<double>> particle_size_distribution_; // spectral, size_distribution
-		std::vector<std::vector<double>> weight_particle_size_distribution_; // spectral, weights
-
-		double g_factor_;	//g-factor for Henyey-Greenstein function
-
-		double absorption_cross_section_;	//m^2/molecule
-		double scattering_cross_section_;	//m^2/molecule
-
-		std::vector<double> vertical_number_density_profile_;	// m-3
-		std::vector<double> vertical_mixing_ratio_profile_;	// mol/mol
-		std::vector<std::vector<double>> refractive_index_vertical_profile_; // nr, ni
-
 	public:
-		const std::string& name(void) const;
-		const SpeciesState& species_state(void) const;
-		const SpeciesType& species_type(void) const;
-		const ScatterType& scatter_type(void) const;
-		const std::vector<std::vector<double>>& particle_size_distribution(void) const;
-		const std::vector<std::vector<double>>& weight_particle_size_distribution(void) const;
-		double g_factor(void) const;
-		double absorption_cross_section(void) const;
-		double scattering_cross_section(void) const;
-		const std::vector<double>& vertical_number_density_profile(void) const;
-		const std::vector<double>& vertical_mixing_ratio_profile(void) const;
-		const std::vector<std::vector<double>>& refractive_index_vertical_profile(void) const;
+		std::string name;
+		SpeciesState species_state;
+		SpeciesType species_type;
+		ScatterType scatter_type;
 
-		void name(const std::string&);
-		void species_state(const SpeciesState&);
-		void species_type(const SpeciesType&);
-		void scatter_type(const ScatterType&);
-		void particle_size_distribution(const std::vector<std::vector<double>>&);
-		void weight_particle_size_distribution(const std::vector<std::vector<double>>&);
-		void g_factor(double);
-		void absorption_cross_section(double);
-		void scattering_cross_section(double);
-		void vertical_number_density_profile(const std::vector<double>&);
-		void vertical_mixing_ratio_profile(const std::vector<double>&);
-		void refractive_index_vertical_profile(const std::vector<std::vector<double>>&);
+		std::vector<std::vector<double>> particle_size_distribution; // spectral, size_distribution
+		std::vector<std::vector<double>> weight_particle_size_distribution; // spectral, weights
+
+		double g_factor;	//g-factor for Henyey-Greenstein function
+
+		double absorption_cross_section;	//m^2/molecule
+		double scattering_cross_section;	//m^2/molecule
+
+		std::vector<double> absorption_cross_section_spectrun;	// spectral, m^2/molecule
+		std::vector<double> scattering_cross_section_spectrun;	// spectral, m^2/molecule
+
+		std::vector<double> vertical_number_density_profile;	// m-3
+		std::vector<double> vertical_mixing_ratio_profile;	// mol/mol
+		std::vector<std::vector<double>> refractive_index_vertical_profile; // nr, ni
+
+		hitran::Isotopologue isotopologue;
+		std::vector<hitran::Line> lines;
+		double abundance = 1.0;
 };
 
 struct OpticalLayer
@@ -337,20 +318,6 @@ struct AtmosphereModel
 		std::vector<double> number_density;
 		hitran::Diluent diluent;
 		// bool enable_atmospheric_emission = false;
-};
-
-class SpectralCalculator
-{
-	private:
-		Configuration configuration_;
-		AtmosphereModel atmosphere_model_;
-		RadiativeTransferCalculator radiative_transfer_;
-
-		RadiativeTransferResult convolve_(const RadiativeTransferResult& radiative_transfer_result);
-		
-	public:
-		SpectralCalculator(const Configuration&, const AtmosphereModel&, const RadiativeTransferCalculator&);
-		RadiativeTransferResult calculate(void);
 };
 
 /*
@@ -578,7 +545,7 @@ class Configuration
 
 		struct SpectralCoordinate
 		{
-			std::optional<SpectralCoordinateDimenstion> spectral_coordinate_dimension;
+			std::optional<SpectralCoordinateDimension> spectral_coordinate_dimension;
 			std::optional<SpectralCoordinateType> spectral_coordinate_type;
 			std::optional<std::string> unit;
 			std::optional<double> mono; // m or m-1, for monochrome
@@ -643,30 +610,49 @@ class Configuration
 			std::optional<std::string> scattering_cross_section_unit;
 
 			// refractive index for mie scattering
-			// 何を計算すべきか？波長方向の積分はなし
-			// 粒径方向の積分はあり
-			// 高度方向は分布を与えても良い
-			// そうなると鉛直分布と屈折率のスペクトルインプットファイルは分けるべき
 			std::optional<std::string> unit_input_refractive_index_spectral;
 			std::optional<RefractiveIndexSpectrumType> refractive_index_spectrum_type; // constant, external
-			std::optional<RefractiveIndexVerticalProfile> refractive_index_vertical_profile_type; // constant, vertical_profile
+			std::optional<RefractiveIndexVerticalProfile> refractive_index_vertical_profile_type; // constant, table
 			// std::optional<UnitDim> dimension_x_input_refractive_index; // spectral dimension
 			std::optional<double> nr;	//real part of refractive index n = nr - i * ni
 			std::optional<double> ni;	//imaginary part of refractive index n = nr - i * ni
+			// 複素屈折率の高度分布
 			std::vector<std::vector<double>> refractive_index_vertical_profile; // m, nr, ni
 			bool is_refractive_index_same_layering_atmosphere = false;
+			std::optional<VerticalProfileInterpolation> refractive_index_vertical_profile_interpolation;
 			std::optional<std::string> unit_refractive_index_vertical_profile;
 
 			// size distribution (Mie)
 			std::optional<ParticleSizeDistribution> size_distribution; // delta, gaussian, log-normal, ...
 			std::optional<std::string> unit_input_radius;
 			std::optional<int> count_radius; // sampling
-			std::optional<double> r; // m, for delta
-			std::optional<double> r_g; // m, for log-normal
-			std::optional<double> sigma_g; // m, for log-normal
-			std::optional<double> r_mean; // m, for rectangular, gaussian
-			std::optional<double> sigma; // m, for gaussian
-			std::optional<double> width; // m, for rectangular
+
+			// Hovenier (2004)
+
+			// Delta
+			std::optional<double> delta_r; 
+
+			// Rectangular
+			std::optional<double> rect_r_mean; 
+			std::optional<double> rect_width; 
+
+			// Log-Normal (D.7)
+			std::optional<double> lnd_r_g; 
+			std::optional<double> lnd_sigma_g; 
+
+			// Gamma (D.5)
+			std::optional<double> gd_a;
+			std::optional<double> gd_b;
+
+			// Modified Gamma (D.6)
+			std::optional<double> mgd_r_c;
+			std::optional<double> mgd_alpha;
+			std::optional<double> mgd_gamma;
+
+			// Power Law (D.8)
+			std::optional<double> pl_delta; 
+			std::optional<double> pl_r1; 
+			std::optional<double> pl_r2;
 
 			// for HG
 			std::optional<double> g_factor;	//g-factor for Henyey-Greenstein function
@@ -679,9 +665,9 @@ class Configuration
 			std::optional<std::string> filename_scattering_cross_section;
 			std::optional<std::string> filename_absorption_cross_section;
 			std::optional<std::string> filename_refractive_index;
-			std::optional<std::string> filename_size_distribution;
+			// std::optional<std::string> filename_size_distribution;
 
-			std::vector<std::vector<double>> scattering_phase_function;
+			// std::vector<std::vector<double>> scattering_phase_function;
 
 			// for hitran
 			std::optional<int> molecule_id;
@@ -844,7 +830,7 @@ class RadiativeTransferCalculator
 
 	public:
 		RadiativeTransferCalculator(const Geometry&);
-		RadiativeTransferResult computeMonochrome(const AtmosphereModel&, double, SpectralCoordinateDimenstion);
+		RadiativeTransferResult computeMonochrome(const AtmosphereModel&, double, SpectralCoordinateDimension);
 };
 
 class ModelBuilder
@@ -856,6 +842,20 @@ class ModelBuilder
 	private:
 		static std::vector<Species> buildSpecies_(const Configuration&, const AtmosphereModel&);
 		static double interpolateVerticalProfile(double, const std::vector<std::vector<double>>&, VerticalProfileInterpolation);
+};
+
+class SpectralCalculator
+{
+	private:
+		Configuration configuration_;
+		AtmosphereModel atmosphere_model_;
+		RadiativeTransferCalculator radiative_transfer_;
+
+		RadiativeTransferResult convolve_(const RadiativeTransferResult& radiative_transfer_result);
+		
+	public:
+		SpectralCalculator(const Configuration&, const AtmosphereModel&, const RadiativeTransferCalculator&);
+		RadiativeTransferResult calculate(void);
 };
 
 /*

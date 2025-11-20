@@ -20,9 +20,11 @@ UnitInfo getUnitInfo(std::string);
 double scaleUnit(std::string, std::string);
 std::vector<std::string> splitString(std::string, char);
 double computeInverseErrorFunction(double, double, int);
-std::vector<std::vector<double>> computeGaussianQuadratureNodeWeight(int);
+std::vector<std::vector<double>> computeGaussLegendreQuadratureNodeWeight(int);
+std::vector<std::vector<double>> computeGaussHermiteQuadratureNodeWeight(int);
+std::vector<std::vector<double>> computeGaussLaguerreQuadratureNodeWeight(int);
+std::vector<std::vector<double>> computeGeneralizedGaussLaguerreQuadratureNodeWeight(int, double);
 double computeGaussianQuadrature(std::vector<std::vector<double>>, std::vector<std::vector<double>>);
-double findLegendreZero(int, double, int);
 double computeTrapezoidalIntegration(const std::vector<std::vector<double>>&);
 double computeSimpsonIntegration(const std::vector<std::vector<double>>&);
 std::vector<std::vector<double>> computeGaussRadauQuadratureNodeWeight(int);
@@ -159,39 +161,219 @@ inline double computeInverseErrorFunction(double y, double tolerance, int max_it
 	return x;
 }
 
-inline std::vector<std::vector<double>> computeGaussianQuadratureNodeWeight(int degree)
+inline std::vector<std::vector<double>> computeGaussLegendreQuadratureNodeWeight(int degree)
 {
-	// 結果として返すノードと重み
-	std::vector<std::vector<double>> node_weight(degree, std::vector<double>(2));
-
-	// 重みとノードを計算
-	std::vector<double> weights(degree);
-	std::vector<double> nodes(degree);
-
-	for (int i = 0; i < degree; i ++)
+	// 1. ヤコビ行列 J の構築 (N x N)
+	Eigen::MatrixXd J = Eigen::MatrixXd::Zero(degree, degree);
+	
+	// 非対角要素 β_k = k / sqrt(4k^2 - 1) を設定
+	for (int k = 1; k < degree; ++k)
 	{
-		// 初期値を計算（近似式を使用してゼロ点付近を見つける）
-		double initial_guess = std::cos((static_cast<double>(i) + 0.75) / (static_cast<double>(degree) + 0.5) * PI);
+		double k_double = static_cast<double>(k);
+		double beta_k = k_double / std::sqrt(4.0 * k_double * k_double - 1.0);
 
-		// ルジャンドル関数の零点をNewton-Raphson法で計算
-		double legendre_zero = findLegendreZero(degree, initial_guess, 50);
-
-		// 零点が小さい場合は 0 に設定（浮動小数点の誤差を考慮）
-		if (std::abs(legendre_zero) < 1.0e-10)
-		{
-			legendre_zero = 0.0;
-		}
-
-		// 計算結果をノードに格納
-		nodes[i] = legendre_zero;
-
-		// 重みを計算
-		weights[i] = 2.0 * (1.0 - nodes[i] * nodes[i]) / (static_cast<double>(degree) * std::legendre(degree - 1, nodes[i]) * static_cast<double>(degree) * std::legendre(degree - 1, nodes[i]));
-
-		// ノードと重みを結果に格納
-		node_weight[i][0] = nodes[i];
-		node_weight[i][1] = weights[i];
+		J(k - 1, k) = beta_k;
+		J(k, k - 1) = beta_k;
 	}
+
+	// 2. 固有値問題の解決
+	Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> es(J);
+	
+	if (es.info() != Eigen::Success)
+	{
+		throw std::runtime_error("Eigenvalue solution failed for Legendre Jacobi matrix.");
+	}
+
+	// 3. ノードと重みの抽出 (w_i = 2 * (v_i, 1)^2)
+	std::vector<std::vector<double>> node_weight(degree, std::vector<double>(2));
+	const Eigen::VectorXd& eigenvalues = es.eigenvalues();
+	const Eigen::MatrixXd& eigenvectors = es.eigenvectors();
+	
+	for (int i = 0; i < degree; ++i)
+	{
+		// ノード: 固有値がノード x_i
+		node_weight[i][0] = eigenvalues(i); 
+
+		// 重み: 固有ベクトルの第1成分の二乗に係数2をかける
+		double v_i_1 = eigenvectors(0, i); 
+		node_weight[i][1] = 2.0 * v_i_1 * v_i_1;
+	}
+
+	// 4. ノードを昇順にソート (省略されたソートロジックをここに挿入)
+	std::sort(node_weight.begin(), node_weight.end(), [](const std::vector<double>& a, const std::vector<double>& b){return a[0] < b[0];});
+
+	return node_weight;
+}
+
+inline std::vector<std::vector<double>> computeGaussHermiteQuadratureNodeWeight(int degree)
+{
+	if (degree <= 0)
+	{
+		throw std::runtime_error("Degree must be positive for Gaussian-Hermite quadrature.");
+	}
+	
+	// 1. ヤコビ行列 J の構築 (N x Nの対称三重対角行列)
+	Eigen::MatrixXd J = Eigen::MatrixXd::Zero(degree, degree);
+	
+	// J_{k, k+1} = J_{k+1, k} = sqrt(k/2) を設定 (k = 1 to N-1)
+	for (int k = 1; k < degree; ++k)
+	{
+		double sub_diag_value = std::sqrt(static_cast<double>(k) / 2.0);
+		J(k - 1, k) = sub_diag_value; // Super-diagonal (i, i+1)
+		J(k, k - 1) = sub_diag_value; // Sub-diagonal (i+1, i)
+	}
+
+	// 2. 固有値問題の解決
+	// SelfAdjointEigenSolver を使用 (Jが対称行列であるため)
+	Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> es(J);
+	
+	if (es.info() != Eigen::Success)
+	{
+		// 固有値計算の失敗
+		throw std::runtime_error("Eigenvalue solution failed for Hermite Jacobi matrix.");
+	}
+
+	// 3. ノードと重みの抽出
+	std::vector<std::vector<double>> node_weight(degree, std::vector<double>(2));
+	
+	// ノードは固有値 (es.eigenvalues())
+	// 重みは第1成分 (es.eigenvectors().col(i)(0)) を使う
+	const Eigen::VectorXd& eigenvalues = es.eigenvalues();
+	const Eigen::MatrixXd& eigenvectors = es.eigenvectors();
+
+	double sqrt_pi = std::sqrt(PI);
+	
+	for (int i = 0; i < degree; ++i)
+	{
+		// ノード: 固有値がそのままノード x_i
+		node_weight[i][0] = eigenvalues(i); 
+
+		// 重み: w_i = sqrt(pi) * (v_i, 1)^2
+		double v_i_1 = eigenvectors(0, i); // 第1成分 (0行 i列)
+		node_weight[i][1] = sqrt_pi * v_i_1 * v_i_1;
+	}
+
+	// 4. ノードを昇順にソート (Eigenの結果は通常ソートされているが、念のため)
+	std::sort(node_weight.begin(), node_weight.end(), [](const std::vector<double>& a, const std::vector<double>& b){return a[0] < b[0];});
+
+	return node_weight;
+}
+
+inline std::vector<std::vector<double>> computeGaussLaguerreQuadratureNodeWeight(int degree)
+{
+	if (degree <= 0)
+	{
+		throw std::runtime_error("Degree must be positive for Gaussian-Laguerre quadrature.");
+	}
+	
+	// 1. ヤコビ行列 J の構築 (N x Nの対称三重対角行列)
+	Eigen::MatrixXd J = Eigen::MatrixXd::Zero(degree, degree);
+	
+	// J_{i, i} = 2i + 1 を設定 (対角要素)
+	// J_{i, i+1} = J_{i+1, i} = i + 1 を設定 (非対角要素)
+	for (int i = 0; i < degree; ++i)
+	{
+		double i_double = static_cast<double>(i);
+		
+		// 対角要素: J_ii = 2i + 1
+		J(i, i) = 2.0 * i_double + 1.0;
+		
+		if (i < degree - 1)
+		{
+			// 非対角要素: J_{i, i+1} = i + 1
+			double off_diag_value = i_double + 1.0;
+			J(i, i + 1) = off_diag_value; 
+			J(i + 1, i) = off_diag_value;
+		}
+	}
+
+	// 2. 固有値問題の解決
+	Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> es(J);
+	
+	if (es.info() != Eigen::Success)
+	{
+		throw std::runtime_error("Eigenvalue solution failed for Laguerre Jacobi matrix.");
+	}
+
+	// 3. ノードと重みの抽出
+	std::vector<std::vector<double>> node_weight(degree, std::vector<double>(2));
+	
+	const Eigen::VectorXd& eigenvalues = es.eigenvalues();
+	const Eigen::MatrixXd& eigenvectors = es.eigenvectors();
+	
+	for (int i = 0; i < degree; ++i)
+	{
+		// ノード: 固有値がそのままノード x_i
+		node_weight[i][0] = eigenvalues(i); 
+
+		// 重み: w_i = (v_i, 1)^2
+		double v_i_1 = eigenvectors(0, i); // 第1成分 (0行 i列)
+		node_weight[i][1] = v_i_1 * v_i_1;
+	}
+
+	// 4. ノードを昇順にソート (ノードは物理的に正の値 x >= 0)
+	std::sort(node_weight.begin(), node_weight.end(), [](const std::vector<double>& a, const std::vector<double>& b){return a[0] < b[0];});
+
+	return node_weight;
+}
+
+inline std::vector<std::vector<double>> computeGeneralizedGaussLaguerreQuadratureNodeWeight(int degree, double alpha_prime)
+{
+	if (degree <= 0)
+	{
+		throw std::runtime_error("Degree must be positive for Gaussian-Laguerre quadrature.");
+	}
+	
+	// 1. ヤコビ行列 J の構築 (N x Nの対称三重対角行列)
+	Eigen::MatrixXd J = Eigen::MatrixXd::Zero(degree, degree);
+	
+	for (int i = 0; i < degree; ++i)
+	{
+		double i_double = static_cast<double>(i);
+		
+		// 対角要素: J_ii = 2i + 1 + alpha'
+		J(i, i) = 2.0 * i_double + 1.0 + alpha_prime;
+		
+		if (i < degree - 1)
+		{
+			// 非対角要素: J_{i, i+1} = J_{i+1, i} = sqrt((i+1)(i+1 + alpha'))
+			double k_plus_1 = i_double + 1.0;
+			double off_diag_value = std::sqrt(k_plus_1 * (k_plus_1 + alpha_prime));
+			
+			J(i, i + 1) = off_diag_value; 
+			J(i + 1, i) = off_diag_value;
+		}
+	}
+
+	// 2. 固有値問題の解決
+	Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> es(J);
+	
+	if (es.info() != Eigen::Success)
+	{
+		throw std::runtime_error("Eigenvalue solution failed for Generalized Laguerre Jacobi matrix.");
+	}
+
+	// 3. ノードと重みの抽出 (w_i = Gamma(alpha'+1) * (v_i, 1)^2)
+	std::vector<std::vector<double>> node_weight(degree, std::vector<double>(2));
+	
+	const Eigen::VectorXd& eigenvalues = es.eigenvalues();
+	const Eigen::MatrixXd& eigenvectors = es.eigenvectors();
+	
+	// 重み計算の定数ファクター: Gamma(alpha' + 1)
+	double gamma_factor = std::tgamma(alpha_prime + 1.0);
+	
+	for (int i = 0; i < degree; ++i)
+	{
+		// ノード: 固有値がノード x_i
+		node_weight[i][0] = eigenvalues(i); 
+
+		// 重み: w_i = Gamma(alpha'+1) * (v_i, 1)^2
+		double v_i_1 = eigenvectors(0, i); 
+		node_weight[i][1] = gamma_factor * v_i_1 * v_i_1;
+	}
+
+	// 4. ノードを昇順にソート
+	std::sort(node_weight.begin(), node_weight.end(), [](const std::vector<double>& a, const std::vector<double>& b){return a[0] < b[0];});
 
 	return node_weight;
 }
@@ -223,40 +405,6 @@ inline double computeGaussianQuadrature(std::vector<std::vector<double>> node_we
 	result *= (max_range - min_range) * 0.5;
 
 	return result;
-}
-
-inline double findLegendreZero(int degree, double initial_guess, int max_iterations)
-{
-	for (int iteration = 0; iteration < max_iterations; iteration ++)
-	{
-		// ルジャンドル多項式の値
-		double legendre_value = std::legendre(degree, initial_guess);
-
-		// ルジャンドル多項式の導関数（漸化式を利用）
-		double legendre_derivative = static_cast<double>(degree) * (std::legendre(degree - 1, initial_guess) - initial_guess * legendre_value) / (1.0 - initial_guess * initial_guess);
-
-		// Newton-Raphson法で次の推定値を計算
-		double next_guess = initial_guess - legendre_value / legendre_derivative;
-
-		// 収束判定
-		if(std::abs(next_guess - initial_guess) < 1.0e-8)
-		{
-			return next_guess;
-
-			break;
-		}
-
-		// 次の推定値を設定
-		initial_guess = next_guess;
-
-		if (iteration == max_iterations - 1)
-		{
-			// 収束しない場合のエラー処理
-			throw std::runtime_error("Failed to find Legendre zero within maximum iterations.");
-		}
-	}
-
-	return 0.0;
 }
 
 inline double computeTrapezoidalIntegration(const std::vector<std::vector<double>>& f)

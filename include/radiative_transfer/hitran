@@ -2062,8 +2062,8 @@ class Line
 		double computeLorentzProfile(double, double, double) const;
 		double computePseudoVoigtProfile(double, double, double, double, const Isotopologue&, const BroadeningGas&) const;
 		double computePseudoVoigtProfile(double, double, double, double, const Isotopologue&, const Diluent&) const;
-		std::complex<double> computeFaddeevaAsymptotic(std::complex<double> z, int) const;
-		double computeFaddeevaFunction(double, double, int) const;
+		// std::complex<double> computeFaddeevaAsymptotic(std::complex<double> z, int) const;
+		// double computeFaddeevaFunction(double, double, int) const;
 		double computeVoigtProfile(double, double, double, double, const Isotopologue&, const BroadeningGas&, int) const;
 		double computeVoigtProfile(double, double, double, double, const Isotopologue&, const Diluent&, int) const;
 

@@ -22,103 +22,11 @@
 namespace radiative_transfer
 {
 
-inline const std::string& Species::name(void) const
-{
-	return name_;
-}
-inline const SpeciesState& Species::species_state(void) const
-{
-	return species_state_;
-}
-inline const SpeciesType& Species::species_type(void) const
-{
-	return species_type_;
-}
-inline const ScatterType& Species::scatter_type(void) const
-{
-	return scatter_type_;
-}
-inline const std::vector<std::vector<double>>& Species::particle_size_distribution(void) const
-{
-	return particle_size_distribution_;
-}
-inline const std::vector<std::vector<double>>& Species::weight_particle_size_distribution(void) const
-{
-	return weight_particle_size_distribution_;
-}
-inline double Species::g_factor(void) const
-{
-	return g_factor_;
-}
-inline double Species::absorption_cross_section(void) const
-{
-	return absorption_cross_section_;
-}
-inline double Species::scattering_cross_section(void) const
-{
-	return scattering_cross_section_;
-}
-inline const std::vector<double>& Species::vertical_number_density_profile(void) const
-{
-	return vertical_number_density_profile_;
-}
-inline const std::vector<double>& Species::vertical_mixing_ratio_profile(void) const
-{
-	return vertical_mixing_ratio_profile_;
-}
-inline const std::vector<std::vector<double>>& Species::refractive_index_vertical_profile(void) const
-{
-	return refractive_index_vertical_profile_;
-}
-
-inline void Species::name(const std::string& name)
-{
-	name_ = name;
-}
-inline void Species::species_state(const SpeciesState& species_state)
-{
-	species_state_ = species_state;
-}
-inline void Species::species_type(const SpeciesType& species_type)
-{
-	species_type_ = species_type;
-}
-inline void Species::scatter_type(const ScatterType& scatter_type)
-{
-	scatter_type_ = scatter_type;
-}
-inline void Species::particle_size_distribution(const std::vector<std::vector<double>>& particle_size_distribution)
-{
-	particle_size_distribution_ = particle_size_distribution;
-}
-inline void Species::weight_particle_size_distribution(const std::vector<std::vector<double>>& weight_particle_size_distribution)
-{
-	weight_particle_size_distribution_ = weight_particle_size_distribution;
-}
-inline void Species::g_factor(double g_factor)
-{
-	g_factor_ = g_factor;
-}
-inline void Species::absorption_cross_section(double absorption_cross_section)
-{
-	absorption_cross_section_ = absorption_cross_section;
-}
-inline void Species::scattering_cross_section(double scattering_cross_section)
-{
-	scattering_cross_section_ = scattering_cross_section;
-}
-inline void Species::vertical_number_density_profile(const std::vector<double>& vertical_number_density_profile)
-{
-	vertical_number_density_profile_ = vertical_number_density_profile;
-}
-inline void Species::vertical_mixing_ratio_profile(const std::vector<double>& vertical_mixing_ratio_profile)
-{
-	vertical_mixing_ratio_profile_ = vertical_mixing_ratio_profile;
-}
-inline void Species::refractive_index_vertical_profile(const std::vector<std::vector<double>>& refractive_index_vertical_profile)
-{
-	refractive_index_vertical_profile_ = refractive_index_vertical_profile;
-}
+std::vector<std::vector<double>> generateLogNormalSizeDistribution(int, double, double);
+std::vector<std::vector<double>> generateRectangularSizeDistribution(int, double, double);
+std::vector<std::vector<double>> generateGammaSizeDistribution(int, double, double);
+std::vector<std::vector<double>> generateModifiedGammaSizeDistribution(int, double, double, double);
+std::vector<std::vector<double>> generatePowerLawSizeDistribution(int, double, double, double);
 
 double ModelBuilder::interpolateVerticalProfile(double x, const std::vector<std::vector<double>>& table, VerticalProfileInterpolation type)
 {
@@ -178,6 +86,177 @@ double ModelBuilder::interpolateVerticalProfile(double x, const std::vector<std:
 		// exp(ln(y)) * scale = y * scale
 		return std::exp((1.0 - r) * log0 + r * log1);
 	}
+}
+
+std::vector<Species> ModelBuilder::buildSpecies_(const Configuration& configuration, const AtmosphereModel& atmosphere_model)
+{
+	int n_species = configuration.atmosphere.species_configuration.size();
+
+	std::vector<Species> species;
+
+	for(int i = 0; i < n_species; ++i)
+	{
+		Species s;
+		auto s_input = configuration.atmosphere.species_configuration[i];
+		s.name = s_input.name.value();
+		s.species_state = s_input.species_state.value();
+
+		bool is_hitran = false;
+
+		// 鉛直分布も忘れずに実装
+
+		if(s.species_state == SpeciesState::Molecule)
+		{
+			s.species_type = s_input.species_type.value();
+
+			if(s.species_type == SpeciesType::Scatterer || s.species_type == SpeciesType::Extinction)
+			{
+				s.scatter_type = s_input.scatter_type.value();
+
+				if(s_input.scattering_cross_section_type.value() == CrossSectionType::Constant)
+				{
+					s.scattering_cross_section = s_input.scattering_cross_section.value() * scaleUnit(s_input.scattering_cross_section_unit.value(), "m2");
+				}
+				else if(s_input.scattering_cross_section_type.value() == CrossSectionType::External)
+				{
+					// 外部ファイルを読み込み
+					;
+				}
+
+				if(s.scatter_type == ScatterType::HenyeyGreenstein)
+				{
+					s.g_factor = s_input.g_factor.value();
+				}
+			}
+
+			if(s.species_type == SpeciesType::Absorber || s.species_type == SpeciesType::Extinction)
+			{
+				if(s_input.absorption_cross_section_type.value() == CrossSectionType::Constant)
+				{
+					s.absorption_cross_section = s_input.absorption_cross_section.value() * scaleUnit(s_input.absorption_cross_section_unit.value(), "m2");
+				}
+				else if(s_input.absorption_cross_section_type.value() == CrossSectionType::External)
+				{
+					// 外部ファイルを読み込み
+					;
+				}
+				else if(s_input.absorption_cross_section_type.value() == CrossSectionType::HITRAN)
+				{
+					is_hitran = true;
+				}
+			}
+		}
+		else if(s.species_state == SpeciesState::Aerosol)
+		{
+			s.scatter_type = s_input.scatter_type.value();
+
+			if(s.scatter_type == ScatterType::Mie)
+			{
+				// 粒径分布関数や積分の重み関数もここで実装
+				// s.particle_size_distribution, s.weight_paritcle_size_distribution
+				// 複素屈折率をどうするか
+
+				if(s_input.refractive_index_spectrum_type.value() == RefractiveIndexSpectrumType::Constant)
+				{
+					;
+				}
+				else if(s_input.refractive_index_spectrum_type.value() == RefractiveIndexSpectrumType::External)
+				{
+					;
+				}
+
+				if(s_input.refractive_index_vertical_profile_type.value() == RefractiveIndexSpectrumVerticalProfile::Constnat)
+				{
+					;
+				}
+				else if(s_input.refractive_index_vertical_profile_type.value() == RefractiveIndexSpectrumVerticalProfile::Table)
+				{
+					;
+				}
+			}
+		}
+
+		if(is_hitran == false)
+		{
+			species.push_back(s);
+		}
+		else
+		{
+			netCDF::NcFile nc_hitran(configuration.filename_hitran.value(), netCDF::NcFile::read);
+
+			double wavenumber_max_calc, wavenumber_min_calc;
+			// スペクトルグリッドが先に決まらないと読み出すラインが決まらない
+			// そのためには装置関数などを先に読み出す必要がある
+			// 大気モデルの構築よりスペクトルグリッドの構築が先にあるべき
+
+			if(configuration.spectral_coordinate.spectral_coordinate_dimension.value() == SpectralCoordinateDimenstion::Wavenumber)
+			{
+				;
+			}
+			else if(configuration.spectral_coordinate.spectral_coordinate_dimension.value() == SpectralCoordinateDimenstion::Wavelength)
+			{
+				;
+			}
+
+			double wavenumber_min = std::max(0.0, wavenumber_min_calc - 1000.0 * scaleUnit("cm-1", "m-1"));
+			double wavenumber_max = wavenumber_max_calc + 1000.0 * scaleUnit("cm-1", "m-1"); // 1000.0はハードコード．あまり良くないかも
+
+
+			// normalizeを忘れてた
+			if(s_input.isotopologue_type.value() == IsotopologueType::All)
+			{
+				auto isos = hitran::isos_for_molecule(s_input.molecule_id.value());
+
+				for(int j = 0; j < isos.size(); ++j)
+				{
+					Species ss = s;
+					ss.isotopologue = isos[j];
+					
+					if(!s_input.abundance.empty())
+					{
+						ss.isotopologue.abundance = s_input.abundance[j];
+					}
+					
+					if(!s_input.scalar.empty())
+					{
+						ss.isotopologue.abundance *= s_input.scalar[j];
+					}
+
+					ss.lines = hitran::loadLines(nc_hitran, ss.isotopologue, wavenumber_min, wavenumber_max, false);
+
+					species.push_back(ss);
+				}
+			}
+			else if(s_input.isotopologue_type.value() == IsotopologueType::Defined)
+			{
+				auto isos = s_input.local_isotopologue_id;
+
+				for(int j = 0; j < isos.size(); ++j)
+				{
+					Species ss = s;
+					ss.isotopologue = isos[j];
+					
+					if(!s_input.abundance.empty())
+					{
+						ss.isotopologue.abundance = s_input.abundance[j];
+					}
+					
+					if(!s_input.scalar.empty())
+					{
+						ss.isotopologue.abundance *= s_input.scalar[j];
+					}
+
+					ss.lines = hitran::loadLines(nc_hitran, ss.isotopologue, wavenumber_min, wavenumber_max, false);
+
+					species.push_back(ss);
+				}
+			}
+		}
+	}
+
+	// ...
+
+	return species;
 }
 
 AtmosphereModel ModelBuilder::buildAtmosphereModel(const Configuration& configuration)
@@ -450,6 +529,11 @@ AtmosphereModel ModelBuilder::buildAtmosphereModel(const Configuration& configur
 
 	model.species = buildSpecies_(configuration, model);
 
+	if(hitran)
+	{
+		// diluent;
+	}
+
 	return model;
 }
 
@@ -595,27 +679,208 @@ Geometry ModelBuilder::buildGeometry(const Configuration& configuration)
 	return geometry;
 }
 
-std::vector<Species> ModelBuilder::buildSpecies_(const Configuration& configuration, const AtmosphereModel& atmosphere_model)
+inline std::vector<std::vector<double>> generateLogNormalSizeDistribution(int n_r, double r_g, double sigma_g)
 {
-	std::vector<Species> species;
+	std::vector<std::vector<double>> result(n_r, std::vector<double>(3));
 
-	// ...
+	if (n_r <= 0 || r_g <= 0.0 || sigma_g <= 0.0)
+	{
+		if (sigma_g <= 0.0)
+		{
+			throw std::runtime_error("[generateLogNormalSizeDistribution] sigma_g must be positive.");
+		}
+	}
 
-	return species;
+	std::vector<std::vector<double>> node_weight_hermite = computeGaussHermiteQuadratureNodeWeight(n_r);
+	
+	double ln_rg = std::log(r_g);
+	double sigma_ln = sigma_g;
+	
+	double sqrt_2_sigma_ln = std::sqrt(2.0) * sigma_ln;
+
+	double weight_prefactor = 1.0 / std::sqrt(PI);
+
+	double pdf_norm_factor = 1.0 / (std::sqrt(2.0 * PI) * sigma_ln);
+
+	for (int i = 0; i < n_r; ++i)
+	{
+		double u_std = node_weight_hermite[i][0];
+		double w_std = node_weight_hermite[i][1];
+		
+		double r = std::exp(ln_rg + sqrt_2_sigma_ln * u_std);
+		double ln_ratio = std::log(r / r_g); 
+		
+		double exponent = -(ln_ratio * ln_ratio) / (2.0 * sigma_ln * sigma_ln);
+
+		result[i][0] = r; 
+		result[i][1] = (pdf_norm_factor / r) * std::exp(exponent);
+		result[i][2] = w_std * weight_prefactor;
+	}
+
+	return result;
 }
 
+inline std::vector<std::vector<double>> generateRectangularSizeDistribution(int n_r, double r_mean, double width)
+{
+	std::vector<std::vector<double>> result(n_r, std::vector<double>(3));
 
+	if (n_r <= 0 || width <= 0.0)
+	{
+		throw std::runtime_error("[generateRectangularSizeDistribution] Invalid input parameters (n_r <= 0 or width <= 0).");
+	}
 
+	double r_min = r_mean - 0.5 * width;
+	double r_max = r_mean + 0.5 * width;
 
+	if (r_min < 0.0)
+	{
+		throw std::runtime_error("[generateRectangularSizeDistribution] Rectangular distribution extends to negative radius (r_min < 0). Adjust r_mean or width.");
+	}
 
+	std::vector<std::vector<double>> node_weight_std = computeGaussLegendreQuadratureNodeWeight(n_r);
+	
+	double n_r_val = 1.0 / (r_max - r_min); 
 
+	for (int i = 0; i < n_r; ++i)
+	{
+		double x_std = node_weight_std[i][0];
+		double w_std = node_weight_std[i][1];
 
+		double r = 0.5 * (r_max - r_min) * x_std + 0.5 * (r_max + r_min);
 
+		result[i][0] = r;
+		result[i][1] = n_r_val;
+		result[i][2] = w_std * 0.5;
+	}
 
+	return result;
+}
 
+inline std::vector<std::vector<double>> generateGammaSizeDistribution(int n_r, double a, double b)
+{
+	std::vector<std::vector<double>> result(n_r, std::vector<double>(3));
 
+	if (n_r <= 0 || a <= 0.0 || b <= 0.0)
+	{
+		throw std::runtime_error("[generateGammaSizeDistribution] Parameters a and b must be positive.");
+	}
+	
+	if ((1 - b) / b <= 0.0)
+	{
+		throw std::runtime_error("[generateGammaSizeDistribution] (1 - 2b) / b must be positive for convergence. Check parameter b.");
+	}
 
+	std::vector<std::vector<double>> node_weight_laguerre = computeGaussLaguerreQuadratureNodeWeight(n_r);
+	
+	double norm_const = 1.0 / (a * b * std::tgamma((1.0 - 2.0 * b) / b));
 
+	for (int i = 0; i < n_r; ++i)
+	{
+		double x_laguerre = node_weight_laguerre[i][0];
+		double w_laguerre = node_weight_laguerre[i][1];
+
+		double r = a * b * x_laguerre;
+		if (r < 1e-12)
+		{
+			r = 1e-12;
+		}
+
+		result[i][0] = r;
+		result[i][1] = norm_const * std::pow(r / a / b, (1.0 - 3.0 * b) / b) * std::exp(-r / a / b);
+		result[i][2] = 1.0 / std::tgamma((1.0 - 2.0 * b) / b) * w_laguerre * std::pow(x_laguerre, (1.0 - 3.0 * b) / b);
+	}
+
+	return result;
+}
+
+inline std::vector<std::vector<double>> generateModifiedGammaSizeDistribution(int n_r, double r_c, double alpha, double gamma)
+{
+	std::vector<std::vector<double>> result(n_r, std::vector<double>(3));
+
+	if (n_r <= 0 || r_c <= 0.0 || alpha <= 0.0 || gamma <= 0.0)
+	{
+		throw std::runtime_error("[generateModifiedGammaSizeDistribution] Parameters must be positive.");
+	}
+	
+	std::vector<std::vector<double>> node_weight_laguerre = computeGeneralizedGaussLaguerreQuadratureNodeWeight(n_r, (alpha - gamma + 1.0) / gamma);
+	
+	double norm_const = gamma / (r_c * std::tgamma((alpha + 1.0) / gamma)) * std::pow(alpha / gamma, (alpha + 1) / gamma);
+	
+	for (int i = 0; i < n_r; ++i)
+	{
+		double x_laguerre = node_weight_laguerre[i][0];
+		double w_laguerre = node_weight_laguerre[i][1];
+
+		double r;
+		if (x_laguerre == 0.0)
+		{
+			r = 0.0;
+		}
+		else
+		{
+			r = r_c * std::pow((gamma / alpha) * x_laguerre, 1.0 / gamma);
+		}
+		
+		if (r < 1e-12)
+		{
+			r = 1e-12;
+		}
+
+		result[i][0] = r;
+		result[i][1] = norm_const * std::pow(r / r_c, alpha) * std::exp(-alpha / gamma * std::pow(r / r_c, gamma));
+		result[i][2] = w_laguerre / std::tgamma((alpha + 1.0) / gamma);
+	}
+
+	return result;
+}
+
+inline std::vector<std::vector<double>> generatePowerLawSizeDistribution(int n_r, double pl_delta, double pl_r1, double pl_r2)
+{
+	std::vector<std::vector<double>> result(n_r, std::vector<double>(3));
+
+	if (n_r <= 0 || pl_r1 <= 0.0 || pl_r2 <= 0.0 || pl_r1 >= pl_r2)
+	{
+		throw std::runtime_error("[generatePowerLawSizeDistribution] Invalid limits or parameters (r1 >= r2).");
+	}
+
+	double ln_r_min = std::log(pl_r1);
+	double ln_r_max = std::log(pl_r2);
+
+	std::vector<std::vector<double>> node_weight_std = computeGaussLegendreQuadratureNodeWeight(n_r);
+	
+	double diff = ln_r_max - ln_r_min;
+	double sum_limits = ln_r_max + ln_r_min;
+	double jacobian = 0.5 * diff;
+	
+	double c;
+	if (std::abs(pl_delta - 1.0) < 1e-9)
+	{
+		c = 1.0 / diff;
+	}
+	else
+	{
+		double term_nu = 1.0 - pl_delta;
+		c = term_nu / (std::pow(pl_r2, term_nu) - std::pow(pl_r1, term_nu));
+	}
+
+	for (int i = 0; i < n_r; ++i)
+	{
+		double x_std = node_weight_std[i][0];
+		double w_std = node_weight_std[i][1];
+
+		double ln_r = 0.5 * diff * x_std + 0.5 * sum_limits;
+		double r = std::exp(ln_r);
+
+		double n_r_val = c * std::pow(r, -pl_delta);
+		double dr = r * w_std * jacobian;
+		
+		result[i][0] = r;
+		result[i][1] = n_r_val;
+		result[i][2] = n_r_val * dr;
+	}
+
+	return result;
+}
 
 
 

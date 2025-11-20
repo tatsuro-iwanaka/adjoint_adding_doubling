@@ -65,7 +65,7 @@ inline RadiativeTransferResult RadiativeTransferCalculator::computeMonochrome(co
 
 	if(atmosphere_model.surface_type == SurfaceType::Lambert)
 	{
-		;
+		surface_layer_opt.
 	}
 
 	for(int i = 0; i < n_layer; ++i)
