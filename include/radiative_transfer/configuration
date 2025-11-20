@@ -1481,13 +1481,15 @@ inline void Configuration::validateConfiguration(void)
 			if(atmosphere.species_configuration[i].unit_vertical_profile.size() == 0)
 			{
 				atmosphere.species_configuration[i].unit_vertical_profile = {atmosphere.z_unit.value(), "m-3"};
-				std::cout << "[Configuration::validateConfiguration] NumberDensity unit was not specified for species " << i << ". Automatically set to m-3." << std::endl;
+				std::cout << "[Configuration::validateConfiguration] Vertical profile unit was not specified for species " << i << ". Automatically set to m-3." << std::endl;
 			}
 			else if(atmosphere.species_configuration[i].unit_vertical_profile.size() == 1)
 			{
-				if(getUnitInfo(atmosphere.species_configuration[i].unit_vertical_profile[0].value()).dim != UnitDim::NumberDensity && getUnitInfo(atmosphere.species_configuration[i].unit_vertical_profile[0].value()).dim != UnitDim::ColumnNumberDensity)
+				atmosphere.species_configuration[i].unit_vertical_profile.insert(atmosphere.species_configuration[i].unit_vertical_profile.begin(), atmosphere.z_unit);
+				
+				if(getUnitInfo(atmosphere.species_configuration[i].unit_vertical_profile[0].value()).dim != UnitDim::Dimensionless && getUnitInfo(atmosphere.species_configuration[i].unit_vertical_profile[0].value()).dim != UnitDim::NumberDensity && getUnitInfo(atmosphere.species_configuration[i].unit_vertical_profile[0].value()).dim != UnitDim::ColumnNumberDensity)
 				{
-					throw std::runtime_error("[Configuration::validateConfiguration] Invalid number_density unit dimension for species " + std::to_string(i) + ".");
+					throw std::runtime_error("[Configuration::validateConfiguration] Invalid vertical profile unit dimension for species " + std::to_string(i) + ".");
 				}
 			}
 			else
@@ -1529,7 +1531,7 @@ inline void Configuration::validateConfiguration(void)
 					atmosphere.species_configuration[i].unit_vertical_profile.push_back(std::optional<std::string>("m-3"));
 					std::cout << "[Configuration::validateConfiguration] Vertical profile unit for species " + std::to_string(i) + " was not specified. Automatically set to m-3." << std::endl;
 				}
-				else if(getUnitInfo(atmosphere.species_configuration[i].unit_vertical_profile[0].value()).dim == UnitDim::NumberDensity || getUnitInfo(atmosphere.species_configuration[i].unit_vertical_profile[0].value()).dim == UnitDim::ColumnNumberDensity)
+				else if(getUnitInfo(atmosphere.species_configuration[i].unit_vertical_profile[0].value()).dim == UnitDim::Dimensionless || getUnitInfo(atmosphere.species_configuration[i].unit_vertical_profile[0].value()).dim == UnitDim::NumberDensity || getUnitInfo(atmosphere.species_configuration[i].unit_vertical_profile[0].value()).dim == UnitDim::ColumnNumberDensity)
 				{
 					atmosphere.species_configuration[i].unit_vertical_profile.insert(atmosphere.species_configuration[i].unit_vertical_profile.begin(), atmosphere.z_unit);
 					std::cout << "[Configuration::validateConfiguration] z_unit for vertical profile for species " + std::to_string(i) + " was not specified. Automatically set to m." << std::endl;
@@ -1838,8 +1840,8 @@ inline void Configuration::validateConfiguration(void)
 				{
 					if(!atmosphere.species_configuration[i].count_radius.has_value())
 					{
-						atmosphere.species_configuration[i].count_radius = 5;
-						std::cout << "[Configuration::validateConfiguration] count_radius for species " << i << " was not specified. Automatically set to " << atmosphere.species_configuration[i].count_radius.value() << "." << std::endl;
+						atmosphere.species_configuration[i].count_radius = 16;
+						std::cout << "[Configuration::validateConfiguration] n_radius for species " << i << " was not specified. Automatically set to " << atmosphere.species_configuration[i].count_radius.value() << "." << std::endl;
 
 					}
 

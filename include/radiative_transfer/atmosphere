@@ -22,11 +22,11 @@
 namespace radiative_transfer
 {
 
-std::vector<std::vector<double>> generateLogNormalSizeDistribution(int, double, double);
-std::vector<std::vector<double>> generateRectangularSizeDistribution(int, double, double);
-std::vector<std::vector<double>> generateGammaSizeDistribution(int, double, double);
-std::vector<std::vector<double>> generateModifiedGammaSizeDistribution(int, double, double, double);
-std::vector<std::vector<double>> generatePowerLawSizeDistribution(int, double, double, double);
+std::vector<std::vector<std::vector<double>>> generateLogNormalSizeDistribution(int, double, double);
+std::vector<std::vector<std::vector<double>>> generateRectangularSizeDistribution(int, double, double);
+std::vector<std::vector<std::vector<double>>> generateGammaSizeDistribution(int, double, double);
+std::vector<std::vector<std::vector<double>>> generateModifiedGammaSizeDistribution(int, double, double, double);
+std::vector<std::vector<std::vector<double>>> generatePowerLawSizeDistribution(int, double, double, double);
 
 double ModelBuilder::interpolateVerticalProfile(double x, const std::vector<std::vector<double>>& table, VerticalProfileInterpolation type)
 {
@@ -91,6 +91,7 @@ double ModelBuilder::interpolateVerticalProfile(double x, const std::vector<std:
 std::vector<Species> ModelBuilder::buildSpecies_(const Configuration& configuration, const AtmosphereModel& atmosphere_model)
 {
 	int n_species = configuration.atmosphere.species_configuration.size();
+	int n_layers = atmosphere_model.altitude.size();
 
 	std::vector<Species> species;
 
@@ -104,6 +105,61 @@ std::vector<Species> ModelBuilder::buildSpecies_(const Configuration& configurat
 		bool is_hitran = false;
 
 		// 鉛直分布も忘れずに実装
+		s.vertical_number_density_profile.resize(n_layers);
+		s.vertical_mixing_ratio_profile.resize(n_layers);
+		auto unit_type = getUnitInfo(s_input.unit_vertical_profile[1].value());
+		std::string input_unit_val = s_input.unit_vertical_profile[1].value();
+		std::string input_unit_alt = s_input.unit_vertical_profile[0].value();
+
+		for (int j = 0; j < n_layers; ++j)
+		{
+			double z_target = atmosphere_model.altitude[j]; // 目標高度 [m]
+			double air_density = atmosphere_model.number_density[j]; // 大気数密度 [m-3]
+			double dz = atmosphere_model.altitude_top[j] - atmosphere_model.altitude_bottom[j]; // 層厚 [m]
+
+			// 2. 入力データから、その高度における「生の値」を取得・補間
+			double raw_value = 0.0;
+
+			if (s_input.is_same_layering_atmosphere)
+			{
+				raw_value = s_input.vertical_profile[j][0];
+			}
+			else
+			{
+				// 層構造が違うなら、高度を使って補間
+				// 入力の高度単位に合わせて z_target を変換 (m -> input_unit)
+				double z_query = z_target * scaleUnit("m", input_unit_alt);
+				raw_value = interpolateVerticalProfile(z_query, s_input.vertical_profile, s_input.vertical_profile_interpolation.value());
+			}
+
+			// 3. 単位と物理量に応じた変換 (数密度と混合比の両方を埋める)
+			if (unit_type == UnitDim::Dimensionless) // Mixing Ratio
+			{
+				// 入力は混合比
+				double mixing_ratio = raw_value * scaleUnit(input_unit_val, "mol/mol"); // 単位変換
+				
+				s.vertical_mixing_ratio_profile[j] = mixing_ratio;
+				s.vertical_number_density_profile[j] = mixing_ratio * air_density;
+			}
+			else if (unit_type == UnitDim::NumberDensity) // Number Density
+			{
+				// 入力は数密度
+				double number_density = raw_value * scaleUnit(input_unit_val, "m-3");
+
+				s.vertical_number_density_profile[j] = number_density;
+				s.vertical_mixing_ratio_profile[j] = number_density / air_density;
+			}
+			else if (unit_type == UnitDim::ColumnNumberDensity) // Column Density
+			{
+				// 入力はカラム密度 [m-2]
+				// 数密度 [m-3] = カラム密度 [m-2] / 層厚 [m]
+				double col_density = raw_value * scaleUnit(input_unit_val, "m-2");
+				double number_density = col_density / dz;
+
+				s.vertical_number_density_profile[j] = number_density;
+				s.vertical_mixing_ratio_profile[j] = number_density / air_density;
+			}
+		}
 
 		if(s.species_state == SpeciesState::Molecule)
 		{
@@ -173,6 +229,42 @@ std::vector<Species> ModelBuilder::buildSpecies_(const Configuration& configurat
 				{
 					;
 				}
+
+				if(s_input.size_distribution.value() == ParticleSizeDistribution::Delta)
+				{
+					s.particle_size_distribution = {s_input.delta_r.value() * scaleUnit(s_input.unit_input_radius.value(), "m"), 1.0};
+					s.weight_particle_size_distribution = {s_input.delta_r.value() * scaleUnit(s_input.unit_input_radius.value(), "m"), 1.0};
+				}
+				else if(s_input.size_distribution.value() == ParticleSizeDistribution::Rectangular)
+				{
+					auto node_weight = generateRectangularSizeDistribution(s_input.count_radius.value(), s_input.r_mean.value() * scaleUnit(s_input.unit_input_radius.value(), "m"), s_input.r_width.value() * scaleUnit(s_input.unit_input_radius.value(), "m"));
+					s.particle_size_distribution = node_weight[0]; // 本当は不要
+					s.weight_particle_size_distribution = node_weight[1];
+				}
+				else if(s_input.size_distribution.value() == ParticleSizeDistribution::Gamma)
+				{
+					auto node_weight = generateGammaSizeDistribution(s_input.count_radius.value(), s_input.gd_a.value() * scaleUnit(s_input.unit_input_radius.value(), "m"), s_input.gd_b.value());
+					s.particle_size_distribution = node_weight[0]; // 本当は不要
+					s.weight_particle_size_distribution = node_weight[1];
+				}
+				else if(s_input.size_distribution.value() == ParticleSizeDistribution::ModifiedGamma)
+				{
+					auto node_weight = generateModifiedGammaSizeDistribution(s_input.count_radius.value(), s_input.mgd_r_c.value() * scaleUnit(s_input.unit_input_radius.value(), "m"), s_input.mgd_alpha.value(), s_input.mgd_gamma.value());
+					s.particle_size_distribution = node_weight[0]; // 本当は不要
+					s.weight_particle_size_distribution = node_weight[1];
+				}
+				else if(s_input.size_distribution.value() == ParticleSizeDistribution::LogNormal)
+				{
+					auto node_weight = generateLogNormalSizeDistribution(s_input.count_radius.value(), s_input.lnd_r_g.value() * scaleUnit(s_input.unit_input_radius.value(), "m"), s_input.lnd_sigma_g.value());
+					s.particle_size_distribution = node_weight[0]; // 本当は不要
+					s.weight_particle_size_distribution = node_weight[1];
+				}
+				else if(s_input.size_distribution.value() == ParticleSizeDistribution::PowerLaw)
+				{
+					auto node_weight = generatePowerLawSizeDistribution(s_input.count_radius.value(), s_input.pl_delta.value(), s_input.pl_r1.value() * scaleUnit(s_input.unit_input_radius.value(), "m"), s_input.pl_r2.value() * scaleUnit(s_input.unit_input_radius.value(), "m"));
+					s.particle_size_distribution = node_weight[0]; // 本当は不要
+					s.weight_particle_size_distribution = node_weight[1];
+				}
 			}
 		}
 
@@ -202,25 +294,42 @@ std::vector<Species> ModelBuilder::buildSpecies_(const Configuration& configurat
 			double wavenumber_max = wavenumber_max_calc + 1000.0 * scaleUnit("cm-1", "m-1"); // 1000.0はハードコード．あまり良くないかも
 
 
-			// normalizeを忘れてた
 			if(s_input.isotopologue_type.value() == IsotopologueType::All)
 			{
 				auto isos = hitran::isos_for_molecule(s_input.molecule_id.value());
+
+				if(!s_input.abundance.empty())
+				{
+					for(int j = 0; j < isos.size(); ++j)
+					{
+						isos[j].abundance = s_input.abundance[j];
+					}
+				}
+				
+				if(!s_input.scalar.empty())
+				{
+					for(int j = 0; j < isos.size(); ++j)
+					{
+						isos[j].abundance *= s_input.scalar[j];
+					}
+				}
+
+				double norm_const = 0.0;
+
+				if(s_input.is_normalize.value() == true)
+				{
+					norm_const += isos[j].abundance;
+				}
+
+				for(int j = 0; j < isos.size(); ++j)
+				{
+					isos[j].abundance /= norm_const;
+				}
 
 				for(int j = 0; j < isos.size(); ++j)
 				{
 					Species ss = s;
 					ss.isotopologue = isos[j];
-					
-					if(!s_input.abundance.empty())
-					{
-						ss.isotopologue.abundance = s_input.abundance[j];
-					}
-					
-					if(!s_input.scalar.empty())
-					{
-						ss.isotopologue.abundance *= s_input.scalar[j];
-					}
 
 					ss.lines = hitran::loadLines(nc_hitran, ss.isotopologue, wavenumber_min, wavenumber_max, false);
 
@@ -229,22 +338,45 @@ std::vector<Species> ModelBuilder::buildSpecies_(const Configuration& configurat
 			}
 			else if(s_input.isotopologue_type.value() == IsotopologueType::Defined)
 			{
-				auto isos = s_input.local_isotopologue_id;
+				std::vector<hitran::Isotopologue> isos(s_input.local_isotopologue_id.size());
+
+				for(int j = 0; j < isos.size(); ++j)
+				{
+					isos[j] = hitran::iso_from_global(hitran::global_from_mol_local(s_input.molecule_id.value(), s_input.local_isotopologue_id[j]));
+				}
+
+				if(!s_input.abundance.empty())
+				{
+					for(int j = 0; j < isos.size(); ++j)
+					{
+						isos[j].abundance = s_input.abundance[j];
+					}
+				}
+				
+				if(!s_input.scalar.empty())
+				{
+					for(int j = 0; j < isos.size(); ++j)
+					{
+						isos[j].abundance *= s_input.scalar[j];
+					}
+				}
+
+				double norm_const = 0.0;
+
+				if(s_input.is_normalize.value() == true)
+				{
+					norm_const += isos[j].abundance;
+				}
+
+				for(int j = 0; j < isos.size(); ++j)
+				{
+					isos[j].abundance /= norm_const;
+				}
 
 				for(int j = 0; j < isos.size(); ++j)
 				{
 					Species ss = s;
 					ss.isotopologue = isos[j];
-					
-					if(!s_input.abundance.empty())
-					{
-						ss.isotopologue.abundance = s_input.abundance[j];
-					}
-					
-					if(!s_input.scalar.empty())
-					{
-						ss.isotopologue.abundance *= s_input.scalar[j];
-					}
 
 					ss.lines = hitran::loadLines(nc_hitran, ss.isotopologue, wavenumber_min, wavenumber_max, false);
 
@@ -679,9 +811,10 @@ Geometry ModelBuilder::buildGeometry(const Configuration& configuration)
 	return geometry;
 }
 
-inline std::vector<std::vector<double>> generateLogNormalSizeDistribution(int n_r, double r_g, double sigma_g)
+inline std::vector<std::vector<std::vector<double>>> generateLogNormalSizeDistribution(int n_r, double r_g, double sigma_g)
 {
-	std::vector<std::vector<double>> result(n_r, std::vector<double>(3));
+	std::vector<std::vector<double>> size_distribution(n_r, std::vector<double>(2));
+	std::vector<std::vector<double>> weight(n_r, std::vector<double>(2));
 
 	if (n_r <= 0 || r_g <= 0.0 || sigma_g <= 0.0)
 	{
@@ -712,17 +845,19 @@ inline std::vector<std::vector<double>> generateLogNormalSizeDistribution(int n_
 		
 		double exponent = -(ln_ratio * ln_ratio) / (2.0 * sigma_ln * sigma_ln);
 
-		result[i][0] = r; 
-		result[i][1] = (pdf_norm_factor / r) * std::exp(exponent);
-		result[i][2] = w_std * weight_prefactor;
+		size_distribution[i][0] = r;
+		weight[i][0] = r; 
+		size_distribution[i][1] = (pdf_norm_factor / r) * std::exp(exponent);
+		weight[i][1] = w_std * weight_prefactor;
 	}
 
-	return result;
+	return {size_distribution, weight};
 }
 
-inline std::vector<std::vector<double>> generateRectangularSizeDistribution(int n_r, double r_mean, double width)
+inline std::vector<std::vector<std::vector<double>>> generateRectangularSizeDistribution(int n_r, double r_mean, double width)
 {
-	std::vector<std::vector<double>> result(n_r, std::vector<double>(3));
+	std::vector<std::vector<double>> size_distribution(n_r, std::vector<double>(2));
+	std::vector<std::vector<double>> weight(n_r, std::vector<double>(2));
 
 	if (n_r <= 0 || width <= 0.0)
 	{
@@ -748,17 +883,19 @@ inline std::vector<std::vector<double>> generateRectangularSizeDistribution(int 
 
 		double r = 0.5 * (r_max - r_min) * x_std + 0.5 * (r_max + r_min);
 
-		result[i][0] = r;
-		result[i][1] = n_r_val;
-		result[i][2] = w_std * 0.5;
+		size_distribution[i][0] = r;
+		weight[i][0] = r;
+		size_distribution[i][1] = n_r_val;
+		weight[i][1] = w_std * 0.5;
 	}
 
-	return result;
+	return {size_distribution, weight};
 }
 
-inline std::vector<std::vector<double>> generateGammaSizeDistribution(int n_r, double a, double b)
+inline std::vector<std::vector<std::vector<double>>> generateGammaSizeDistribution(int n_r, double a, double b)
 {
-	std::vector<std::vector<double>> result(n_r, std::vector<double>(3));
+	std::vector<std::vector<double>> size_distribution(n_r, std::vector<double>(2));
+	std::vector<std::vector<double>> weight(n_r, std::vector<double>(2));
 
 	if (n_r <= 0 || a <= 0.0 || b <= 0.0)
 	{
@@ -785,17 +922,19 @@ inline std::vector<std::vector<double>> generateGammaSizeDistribution(int n_r, d
 			r = 1e-12;
 		}
 
-		result[i][0] = r;
-		result[i][1] = norm_const * std::pow(r / a / b, (1.0 - 3.0 * b) / b) * std::exp(-r / a / b);
-		result[i][2] = 1.0 / std::tgamma((1.0 - 2.0 * b) / b) * w_laguerre * std::pow(x_laguerre, (1.0 - 3.0 * b) / b);
+		size_distribution[i][0] = r;
+		weight[i][0] = r;
+		size_distribution[i][1] = norm_const * std::pow(r / a / b, (1.0 - 3.0 * b) / b) * std::exp(-r / a / b);
+		weight[i][1] = 1.0 / std::tgamma((1.0 - 2.0 * b) / b) * w_laguerre * std::pow(x_laguerre, (1.0 - 3.0 * b) / b);
 	}
 
-	return result;
+	return {size_distribution, weight};
 }
 
-inline std::vector<std::vector<double>> generateModifiedGammaSizeDistribution(int n_r, double r_c, double alpha, double gamma)
+inline std::vector<std::vector<std::vector<double>>> generateModifiedGammaSizeDistribution(int n_r, double r_c, double alpha, double gamma)
 {
-	std::vector<std::vector<double>> result(n_r, std::vector<double>(3));
+	std::vector<std::vector<double>> size_distribution(n_r, std::vector<double>(2));
+	std::vector<std::vector<double>> weight(n_r, std::vector<double>(2));
 
 	if (n_r <= 0 || r_c <= 0.0 || alpha <= 0.0 || gamma <= 0.0)
 	{
@@ -826,17 +965,19 @@ inline std::vector<std::vector<double>> generateModifiedGammaSizeDistribution(in
 			r = 1e-12;
 		}
 
-		result[i][0] = r;
-		result[i][1] = norm_const * std::pow(r / r_c, alpha) * std::exp(-alpha / gamma * std::pow(r / r_c, gamma));
-		result[i][2] = w_laguerre / std::tgamma((alpha + 1.0) / gamma);
+		size_distribution[i][0] = r;
+		weight[i][0] = r;
+		size_distribution[i][1] = norm_const * std::pow(r / r_c, alpha) * std::exp(-alpha / gamma * std::pow(r / r_c, gamma));
+		weight[i][1] = w_laguerre / std::tgamma((alpha + 1.0) / gamma);
 	}
 
-	return result;
+	return {size_distribution, weight};
 }
 
-inline std::vector<std::vector<double>> generatePowerLawSizeDistribution(int n_r, double pl_delta, double pl_r1, double pl_r2)
+inline std::vector<std::vector<std::vector<double>>> generatePowerLawSizeDistribution(int n_r, double pl_delta, double pl_r1, double pl_r2)
 {
-	std::vector<std::vector<double>> result(n_r, std::vector<double>(3));
+	std::vector<std::vector<double>> size_distribution(n_r, std::vector<double>(2));
+	std::vector<std::vector<double>> weight(n_r, std::vector<double>(2));
 
 	if (n_r <= 0 || pl_r1 <= 0.0 || pl_r2 <= 0.0 || pl_r1 >= pl_r2)
 	{
@@ -874,12 +1015,13 @@ inline std::vector<std::vector<double>> generatePowerLawSizeDistribution(int n_r
 		double n_r_val = c * std::pow(r, -pl_delta);
 		double dr = r * w_std * jacobian;
 		
-		result[i][0] = r;
-		result[i][1] = n_r_val;
-		result[i][2] = n_r_val * dr;
+		size_distribution[i][0] = r;
+		weight[i][0] = r;
+		size_distribution[i][1] = n_r_val;
+		weight[i][1] = n_r_val * dr;
 	}
 
-	return result;
+	return {size_distribution, weight};
 }
 
 

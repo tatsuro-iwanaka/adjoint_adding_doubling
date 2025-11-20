@@ -586,8 +586,8 @@ class Configuration
 
 			// vertical profile
 			std::optional<VerticalProfileInterpolation> vertical_profile_interpolation; // linear, exponential
-			std::optional<VerticalProfileType> vertical_profile_type; // mixing ratio, number density, column density
-			std::vector<std::vector<double>> vertical_profile;	//m, mol/mol
+			// std::optional<VerticalProfileType> vertical_profile_type; // mixing ratio, number density, column density
+			std::vector<std::vector<double>> vertical_profile;	//m, abundance
 			std::vector<std::optional<std::string>> unit_vertical_profile;
 			bool is_same_layering_atmosphere = false;
 			
@@ -598,14 +598,12 @@ class Configuration
 			// absorption cross section
 			std::optional<std::string> unit_input_absorption_cross_section;
 			std::optional<std::string> unit_input_absorption_spectral;
-			// std::optional<UnitDim> dimension_x_input_absorption; // spectral dimension
 			std::optional<double> absorption_cross_section;	//m^2/molecule
 			std::optional<std::string> absorption_cross_section_unit;
 
 			// scattering cross section
 			std::optional<std::string> unit_input_scattering_cross_section;
 			std::optional<std::string> unit_input_scattering_spectral;
-			// std::optional<UnitDim> dimension_x_input_scattering;
 			std::optional<double> scattering_cross_section;	//m^2/molecule
 			std::optional<std::string> scattering_cross_section_unit;
 
@@ -613,7 +611,6 @@ class Configuration
 			std::optional<std::string> unit_input_refractive_index_spectral;
 			std::optional<RefractiveIndexSpectrumType> refractive_index_spectrum_type; // constant, external
 			std::optional<RefractiveIndexVerticalProfile> refractive_index_vertical_profile_type; // constant, table
-			// std::optional<UnitDim> dimension_x_input_refractive_index; // spectral dimension
 			std::optional<double> nr;	//real part of refractive index n = nr - i * ni
 			std::optional<double> ni;	//imaginary part of refractive index n = nr - i * ni
 			// 複素屈折率の高度分布
@@ -623,61 +620,49 @@ class Configuration
 			std::optional<std::string> unit_refractive_index_vertical_profile;
 
 			// size distribution (Mie)
-			std::optional<ParticleSizeDistribution> size_distribution; // delta, gaussian, log-normal, ...
+			std::optional<ParticleSizeDistribution> size_distribution; // delta, log-normal, ...
 			std::optional<std::string> unit_input_radius;
 			std::optional<int> count_radius; // sampling
 
 			// Hovenier (2004)
 
 			// Delta
-			std::optional<double> delta_r; 
+			std::optional<double> delta_r; // m
 
 			// Rectangular
-			std::optional<double> rect_r_mean; 
-			std::optional<double> rect_width; 
+			std::optional<double> rect_r_mean; // m
+			std::optional<double> rect_width; // m
 
 			// Log-Normal (D.7)
-			std::optional<double> lnd_r_g; 
-			std::optional<double> lnd_sigma_g; 
+			std::optional<double> lnd_r_g; // m
+			std::optional<double> lnd_sigma_g; // dimensionless
 
 			// Gamma (D.5)
-			std::optional<double> gd_a;
-			std::optional<double> gd_b;
+			std::optional<double> gd_a; // m
+			std::optional<double> gd_b; // dimensionless
 
 			// Modified Gamma (D.6)
-			std::optional<double> mgd_r_c;
-			std::optional<double> mgd_alpha;
-			std::optional<double> mgd_gamma;
+			std::optional<double> mgd_r_c; // m
+			std::optional<double> mgd_alpha; // dimensionless
+			std::optional<double> mgd_gamma; // dimensionless
 
 			// Power Law (D.8)
-			std::optional<double> pl_delta; 
-			std::optional<double> pl_r1; 
-			std::optional<double> pl_r2;
+			std::optional<double> pl_delta;  // dimensionless
+			std::optional<double> pl_r1;  // m
+			std::optional<double> pl_r2; // m
 
 			// for HG
 			std::optional<double> g_factor;	//g-factor for Henyey-Greenstein function
-			
-			// std::vector<std::vector<double>> absorption_cross_section_vertical_profile; // m, m2/molecule
-			// std::vector<std::vector<double>> scattering_cross_section_vertical_profile; // m, m2/molecule
-			// bool is_absorption_cross_section_same_layering_atmosphere = false;
-			// bool is_scattering_cross_section_same_layering_atmosphere = false;
 
 			std::optional<std::string> filename_scattering_cross_section;
 			std::optional<std::string> filename_absorption_cross_section;
 			std::optional<std::string> filename_refractive_index;
-			// std::optional<std::string> filename_size_distribution;
-
-			// std::vector<std::vector<double>> scattering_phase_function;
 
 			// for hitran
 			std::optional<int> molecule_id;
 			std::vector<int> local_isotopologue_id;
 			std::optional<IsotopologueType> isotopologue_type;
 			std::optional<IsotopologueAbundanceType> isotopologue_abundance_type;
-			// std::optional<int> global_id;
-			// std::optional<std::string> filename_hitran;
-			// std::optional<hitran::Isotopologue> isotopologue;
-			// std::vector<hitran::Line> lines;
 			std::vector<double> abundance;
 			std::vector<double> scalar;
 			std::optional<bool> is_normalize;
