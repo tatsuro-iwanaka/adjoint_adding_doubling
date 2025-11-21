@@ -257,7 +257,7 @@ std::vector<Species> ModelBuilder::buildSpecies_(const Configuration& configurat
 						s.refractive_index[j] = {{std::numeric_limits<double>::quiet_NaN(), s_input.nr.value(), s_input.ni.value()}};
 					}
 				}
-				else if(s_input.refractive_index_type.value() == RefractiveIndexType::Spectrum)
+				else if(s_input.refractive_index_type.value() == RefractiveIndexType::Spectral)
 				{
 					// 外部ファイル読み込み
 					// 読み込んだ配列 std::vector<std::vector<double>> loaded_data ({spectral, nr, ni}の配列)
@@ -500,7 +500,7 @@ std::vector<Species> ModelBuilder::buildSpecies_(const Configuration& configurat
 			}
 			else if(spectral.spectral_dimension == SpectralCoordinateDimension::Wavenumber)
 			{
-				wavenumber_max_calc = spectral.spectral_grid[spectral_grid.size() - 1];
+				wavenumber_max_calc = spectral.spectral_grid[spectral.spectral_grid.size() - 1];
 				wavenumber_min_calc = spectral.spectral_grid[0];
 			}
 
