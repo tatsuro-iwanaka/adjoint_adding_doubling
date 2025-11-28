@@ -355,170 +355,6 @@ struct AtmosphereModel
 		// bool enable_atmospheric_emission = false;
 };
 
-/*
-class AtmosphereModel
-{
-	private:
-		
-	public:		
-		std::vector<Layer> layers;
-		Layer surface_layer;
-		Layer result_layer;
-		std::vector<Species> species;
-
-		hitran::Diluent diluent = hitran::Diluent(1.0, 0.0, 0.0, 0.0, 0.0);
-
-		// int M = -99;
-		// int Ntheta;
-		// int Nphi = -99;
-
-		std::optional<int> M;
-		std::optional<int> Ntheta;
-		std::optional<int> Nphi;
-		
-		// std::ofstream log_out;
-
-		const int radius_n = 1001;
-		const int theta_n = 1001;
-
-		AtmosphereModel(void)
-		{
-			return;
-		}
-};
-
-class Layer
-{
-	private:
-
-	public:
-		std::vector<std::vector<std::vector<double>>> reflectance_top;
-		std::vector<std::vector<std::vector<double>>> reflectance_bottom;
-		std::vector<std::vector<std::vector<double>>> transmittance_top;
-		std::vector<std::vector<std::vector<double>>> transmittance_bottom;
-
-		std::vector<Eigen::MatrixXd> reflectance_m_top_cos;
-		std::vector<Eigen::MatrixXd> reflectance_m_bottom_cos;
-		std::vector<Eigen::MatrixXd> transmittance_m_top_cos;
-		std::vector<Eigen::MatrixXd> transmittance_m_bottom_cos;
-
-		std::vector<Eigen::MatrixXd> reflectance_m_top_sin;
-		std::vector<Eigen::MatrixXd> reflectance_m_bottom_sin;
-		std::vector<Eigen::MatrixXd> transmittance_m_top_sin;
-		std::vector<Eigen::MatrixXd> transmittance_m_bottom_sin;
-
-		Eigen::VectorXd source_up;
-		Eigen::VectorXd source_down;
-
-		double altitude_bottom; //m
-		double altitude_top; //m
-		double altitude; //m
-		double physical_thickness; //m
-
-		double temperature;	//K
-		double pressure;	//Pa
-
-		double planck_function; // IR計算用 プランク関数
-
-		double number_density;	//molecules/m^3
-		
-		double absorption_coefficient; //m-1
-		double scattering_coefficient; //m-1
-		double optical_thickness; //dimensionless
-		double single_scattering_albedo; //ks/(ks + ka)
-
-		bool enable_atmospheric_emission = false;
-
-		int n_doubling = 0;
-
-		double asymmetry_parameter;
-
-		std::vector<std::vector<double>> scattering_phase_function;	//angle (radian), magnitude (dimensionless)
-
-		std::vector<double> mixing_ratio_species;
-		std::vector<double> number_density_species;
-
-		void normalizeScatteringPhaseFunction(void);
-		void exportPhaseFunction(std::string);
-};
-
-class Species
-{
-	private:
-		std::string name_;
-		SpeciesState species_state_ = SpeciesState::Molecule;
-		SpeciesType species_type_ = SpeciesType::Absorber;
-		ScatterType scatter_type_ = ScatterType::Isotropic;
-		VerticalProfileInterpolation vertical_profile_interpolation_ = VerticalProfileInterpolation::Exponential;
-		VerticalProfileType vertical_profile_type_ = VerticalProfileType::MixingRatio;
-		ParticleSizeDistribution size_distribution_ = ParticleSizeDistribution::Delta;
-		RefractiveIndexSpectrumType refractive_index_type_ = RefractiveIndexSpectrumType::Constant;
-		CrossSectionType scattering_cross_section_type_ = CrossSectionType::Constant;
-		CrossSectionType absorption_cross_section_type_ = CrossSectionType::Constant;
-
-		std::string unit_input_absorption_cross_section_ = "m2";
-		std::string unit_input_absorption_wavelength_ = "m";
-		std::string unit_input_absorption_wavenumber_ = "m-1";
-		UnitDim unit_x_input_absorption_ = UnitDim::Length;
-
-		std::string unit_input_scattering_cross_section_ = "m2";
-		std::string unit_input_scattering_wavelength_ = "m";
-		std::string unit_input_scattering_wavenumber_ = "m-1";
-		UnitDim unit_x_input_scattering_ = UnitDim::Length;
-
-		std::string unit_input_refractive_index_wavelength_ = "m";
-		std::string unit_input_refractive_index_wavenumber_ = "m-1";
-		UnitDim unit_x_input_refractive_index_ = UnitDim::Length;
-
-		std::string unit_input_radius_ = "m";
-
-		// double scale_cross_section_ = 1.0;
-
-		double size_ = 0.1E-6; // m
-		double r_g_ = 0.1E-6; // m
-		double sigma_g_ = 0.15E-6; // m
-		double r_mean_ = 0.1E-6; // m
-		double sigma_ = 0.15E-6; // m
-		int n_radius_ = 1001;
-		double width_ = 0.15E-6; // m
-
-		double g_factor_;	//g-factor for Henyey-Greenstein function
-		
-		double nr_ = 1.5;	//real part of refractive index n = nr - i * ni
-		double ni_ = 0.0;	//imaginary part of refractive index n = nr - i * ni
-
-		std::vector<std::vector<double>> refractive_index_vertical_profile_; // m, nr, ni
-		std::vector<std::vector<double>> absorption_cross_section_vertical_profile_;
-		std::vector<std::vector<double>> scattering_cross_section_vertical_profile_;
-		
-		double absorption_cross_section_ = 0.0;	//m^2/molecule
-		double scattering_cross_section_ = 0.0;	//m^2/molecule
-
-		std::vector<std::vector<double>> vertical_profile_;	//m, mol/mol
-		bool is_same_layering_atmosphere_ = false;
-
-		std::string filename_scattering_cross_section_;
-		std::string filename_absorption_cross_section_;
-		std::string filename_refractive_index_;
-		std::string filename_size_distribution_;
-
-		std::vector<std::vector<double>> scattering_phase_function_;
-
-		int molecule_id_;
-		int local_isotopologue_id_;
-		int global_id_;
-		std::string filename_hitran_;
-		hitran::Isotopologue isotopologue_;
-		std::vector<hitran::Line> lines_;
-		double abundance_ = 1.0;
-
-	public:
-		double computeMixingRatio(double);
-		double computeNumberDensity(double);
-		std::complex<double> computeRefractiveIndex(double);
-};
-*/
-
 struct Geometry //for Fourier-AD
 {
 	public:
@@ -785,13 +621,32 @@ class Configuration
 		Surface surface;
 		Atmosphere atmosphere;
 
-		// ?
-		std::optional<double> wavenumber_min_result; // m-1
-		std::optional<double> wavenumber_max_result; // m-1
-
 		// bool is_wavenumber;
 
 		void validateConfiguration(void);
+};
+
+struct SpectralInformation
+{
+	public:
+		std::vector<double> spectral_grid; // m or m-1
+		SpectralCoordinateDimension spectral_dimension; // wavelength or wavenumber
+
+		std::vector<double> convolution_kernel; // size = over_sampling_count;
+		std::vector<double> filter_function; // size = spectral_grid.size()
+		std::vector<double> filter_weight;
+
+		// instrumentの情報のことも格納
+};
+
+struct DeltaApproximation
+{
+	public:
+		DeltaApproximationType delta_approximation_type;
+		InCellSuperSamplingType icss_type;
+		int n_icss_sample;
+		double fwhm_ratio;
+		double f_target;
 };
 
 class ConfigurationLoader
@@ -873,6 +728,7 @@ class RadiativeTransferSolver
 {
 	private:
 		Geometry geometry_;
+		DeltaApproximation delta_approximation_;
 		
 		double initial_optical_thickness_;
 
@@ -882,21 +738,14 @@ class RadiativeTransferSolver
 		std::vector<OpticalLayer> setAtmosphericLayerCondition_(const AtmosphereModel&, double, SpectralCoordinateDimension, int);
 		OpticalLayer setSurfaceLayerCondition_(const AtmosphereModel&, double, SpectralCoordinateDimension);
 
-		// void setLayerCondition_(const AtmosphereModel&, double, SpectralCoordinateDimension);
-		// void initializeLayer_(Layer&);
-		// void initializeSurface_(Layer&);
-		// void setLayerCondition_(AtmosphereModel&, double);
-		// std::vector<std::vector<Eigen::MatrixXd>> computeFourierSeriesCoefficients_(const std::vector<std::vector<std::vector<double>>>&, int);
-		// std::vector<std::vector<std::vector<double>>> reconstruct_(const std::vector<std::vector<std::vector<std::vector<double>>>>&);
-		// void computeFourierSeriesCoefficients_(Layer&);
-		// void reconstructOpticalProperties_(Layer&);
-		// void initializeGeometry_(void);
-		// void computeAtmosphericProperties_(AtmosphereModel&);
-		// void computeSpeciesProperties_(AtmosphereModel&);
-		// void validateAtmosphererModel_(const AtmosphereModel&);
+		void computeDeltaApproximation_(OpticalLayer&);
 
 	public:
+		RadiativeTransferSolver();
 		RadiativeTransferSolver(const Geometry&);
+
+		void geometry(const Geometry&); // setter
+		void delta_approximation(const DeltaApproximation&); // setter
 
 		MonochromeData computeMonochrome(const AtmosphereModel&, double, SpectralCoordinateDimension, double);
 		std::vector<std::vector<std::vector<double>>> reconstruct(const std::vector<std::vector<std::vector<std::vector<double>>>>&);
@@ -905,25 +754,13 @@ class RadiativeTransferSolver
 		// void computeFourierSeriesCoefficients(RadiativeLayer&);
 };
 
-struct SpectralInformation
-{
-	public:
-		std::vector<double> spectral_grid; // m or m-1
-		SpectralCoordinateDimension spectral_dimension; // wavelength or wavenumber
-
-		std::vector<double> convolution_kernel; // size = over_sampling_count;
-		std::vector<double> filter_function; // size = spectral_grid.size()
-		std::vector<double> filter_weight;
-
-		// instrumentの情報のことも格納
-};
-
 class ModelBuilder
 {
 	public:
 		static AtmosphereModel buildAtmosphereModel(const Configuration&, const SpectralInformation&);
 		static Geometry buildGeometry(const Configuration&);
 		static SpectralInformation buildSpectral(const Configuration&);
+		static DeltaApproximation buildDeltaApproximation(const Configuration&);
 
 	private:
 		static std::vector<Species> buildSpecies_(const Configuration&, const AtmosphereModel&, const SpectralInformation&);
@@ -940,101 +777,18 @@ class RadiativeTransfer
 		Geometry geometry_;
 		RadiativeTransferResult result_;
 
+		std::string config_filename_;
+
 		RadiativeTransferResult convolve_(const RadiativeTransferResult& radiative_transfer_result);
 		
 	public:
+		RadiativeTransfer();
 		RadiativeTransfer(const std::string&);
+		void loadConfiguration(void);
 		void run(void);
 		void exportResultNetCDF(void);
 		RadiativeTransferResult result(void);
 };
-
-/*
-class RadiativeTransfer
-{
-	private:
-		void initializeLayer(Layer&);
-		void initializeSurface(Layer&);
-		// void setLayerCondition(void);
-		
-		void setLayerCondition(AtmosphereModel&, double);
-
-		std::vector<std::vector<Eigen::MatrixXd>> computeFourierSeriesCoefficients(const std::vector<std::vector<std::vector<double>>>&, int);
-		std::vector<std::vector<std::vector<double>>> reconstruct(const std::vector<std::vector<std::vector<std::vector<double>>>>&);
-		void computeFourierSeriesCoefficients(Layer&);
-		void reconstructOpticalProperties(Layer&);
-
-		double computePhaseFunction(const std::vector<std::vector<double>>&, double);
-
-	public:
-		// std::vector<double> wavelength;
-		// std::vector<std::vector<double>> window_function;
-
-		class Result
-		{
-			public:
-				int Ntheta;
-				int Nphi;
-				int Nmode;
-
-				std::vector<double> theta_e, theta_i, phi;
-
-				std::vector<std::vector<std::vector<std::vector<double>>>> reflectance_top;
-
-				std::vector<std::vector<Eigen::MatrixXd>> reflectance_m_top_cos;
-				std::vector<std::vector<Eigen::MatrixXd>> reflectance_m_top_sin;
-
-				std::vector<Eigen::VectorXd> source_up;
-
-				std::vector<double> wavelength;
-				std::vector<double> wavenumber;
-
-				std::vector<double> altitude; // altitude
-				std::vector<double> altitude_top; // altitude
-				std::vector<double> altitude_bottom; // altitude
-				std::vector<double> physical_thickness; // altitude
-
-				std::vector<double> temperature; // altitude
-				std::vector<double> pressure; // altitude
-				std::vector<double> number_density; // altitude
-
-				std::vector<std::vector<double>> absorption_coefficient; // wavelength, altitude
-				std::vector<std::vector<double>> scattering_coefficient; // wavelength, altitude
-				std::vector<std::vector<double>> single_scattering_albedo; // wavelength, altitude
-				std::vector<std::vector<double>> optical_thickness; // wavelength, altitude
-				std::vector<std::vector<double>> asymmetry_parameter; // wavelength, altitude
-		};
-
-		int Ntheta;
-		int Nphi;
-		int M;
-
-		// AtmosphereModel atmosphere_model;
-		Geometry geometry;
-		
-		Result result;
-
-		Configuration configuration;
-		std::string config_filename = "config.yaml";
-
-		void importConfiguration(void);
-		void initializeGeometry(void);
-		void computeAtmosphericProperties(AtmosphereModel&);
-		void computeSpeciesProperties(AtmosphereModel&);
-
-		void validateAtmosphererModel(const AtmosphereModel&);
-
-		// void runSpectrum(void);
-		void runSpectrum(AtmosphereModel);
-		void runMonochrome(AtmosphereModel&, double);
-		// void runBandpass(void);
-		void runBandpass(AtmosphereModel);
-		void run(void);
-
-		void exportResultNetCDF(std::string);
-		void exportResultNetCDF(void);
-};
-*/
 
 class JacobianResult
 {

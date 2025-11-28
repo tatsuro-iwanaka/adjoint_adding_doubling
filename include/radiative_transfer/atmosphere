@@ -1509,6 +1509,19 @@ inline SpectralInformation ModelBuilder::buildSpectral(const Configuration& conf
 	return spectral;
 }
 
+inline DeltaApproximation ModelBuilder::buildDeltaApproximation(const Configuration& configuration)
+{
+	DeltaApproximation delta_approximation;
+
+	delta_approximation.delta_approximation_type = configuration.delta_m.delta_approximation_type.value();
+	delta_approximation.icss_type = configuration.delta_m.icss_type.value();
+	delta_approximation.n_icss_sample = configuration.delta_m.n_icss_sample.value();
+	delta_approximation.fwhm_ratio = configuration.delta_m.fwhm_ratio.value();
+	delta_approximation.f_target = configuration.delta_m.f_target.value();
+
+	return delta_approximation;
+}
+
 inline std::vector<double> generateGaussianKernel(double sigma, int sampling_count, double cut_off_sigma = 3.0)
 {
 	if (sigma <= 0.0)

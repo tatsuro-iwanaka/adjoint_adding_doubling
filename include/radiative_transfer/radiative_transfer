@@ -29,9 +29,24 @@
 namespace radiative_transfer
 {
 
-inline RadiativeTransferSolver::RadiativeTransferSolver(const Geometry& geometry)
+inline RadiativeTransferSolver::RadiativeTransferSolver()
 {
-	geometry_ = geometry;
+	return;
+}
+
+inline RadiativeTransferSolver::RadiativeTransferSolver(const Geometry& geometry_input)
+{
+	geometry(geometry_);
+}
+
+inline void RadiativeTransferSolver::geometry(const Geometry& geometry_input)
+{
+	geometry_ = geometry_input;
+}
+
+inline void RadiativeTransferSolver::delta_approximation(const DeltaApproximation& delta_approximation_input)
+{
+	delta_approximation_ = delta_approximation_input;
 }
 
 inline MonochromeData RadiativeTransferSolver::computeMonochrome(const AtmosphereModel& atmosphere_model, double spectral, SpectralCoordinateDimension dimension, double initial_optical_thickness = 1.0E-6)
@@ -75,6 +90,7 @@ inline MonochromeData RadiativeTransferSolver::computeMonochrome(const Atmospher
 	for(int i = 0; i < n_layer; ++i)
 	{
 		atmosphere_layer_rad[i] = initializeAtmosphericLayer_(atmosphere_layer_opt[i]);
+		computeDeltaApproximation_(atmosphere_layer_opt[i]);
 
 		result.absorption_coefficient[i] = atmosphere_layer_opt[i].absorption_coefficient;
 		result.scattering_coefficient[i] = atmosphere_layer_opt[i].scattering_coefficient;
@@ -105,6 +121,197 @@ inline MonochromeData RadiativeTransferSolver::computeMonochrome(const Atmospher
 	result.source_up = result_layer_rad.source_up;
 
 	return result;
+}
+
+inline void RadiativeTransferSolver::computeDeltaApproximation_(OpticalLayer& layer)
+{
+	if (delta_approximation_.delta_approximation_type == DeltaApproximationType::Disable)
+	{
+		return;
+	}
+	
+	const auto& P = layer.scattering_phase_function;
+	if (P.empty()) return;
+
+	// --- 1. モーメント計算と正規化 (台形則を使用) ---
+	double norm = 0.0;
+	double m1 = 0.0; // Asymmetry parameter (g)
+	double m2 = 0.0; // 2nd moment
+	std::vector<double> cumsum(P.size());
+
+	for (size_t i = 0; i < P.size() - 1; ++i)
+	{
+		double theta0 = P[i][0];
+		double theta1 = P[i+1][0];
+		double val0 = P[i][1];
+		double val1 = P[i+1][1];
+		double dtheta = theta1 - theta0;
+
+		// 被積分関数: P(θ) * sin(θ)
+		double f0 = val0 * std::sin(theta0);
+		double f1 = val1 * std::sin(theta1);
+		double w = 0.5 * (f0 + f1) * dtheta; // 台形則
+
+		norm += w;
+		
+		// g = ∫ P cosθ sinθ dθ / norm
+		m1 += 0.5 * (f0 * std::cos(theta0) + f1 * std::cos(theta1)) * dtheta;
+		
+		// m2 = ∫ P * 0.5(3cos^2-1) sinθ dθ / norm
+		double leg2_0 = 0.5 * (3.0 * std::cos(theta0) * std::cos(theta0) - 1.0);
+		double leg2_1 = 0.5 * (3.0 * std::cos(theta1) * std::cos(theta1) - 1.0);
+		m2 += 0.5 * (f0 * leg2_0 + f1 * leg2_1) * dtheta;
+
+		cumsum[i] = norm; // iまでの積分値
+	}
+	cumsum.back() = norm; // 最後の点を埋める
+
+	if (norm <= 1.0e-50) norm = 1.0; // ゼロ割防止
+
+	// 正規化されたモーメント
+	double g_asy = m1 / norm;
+	double f_2nd = m2 / norm;
+
+	// --- 2. カットオフ率 f の決定 ---
+	double f = 0.0;
+
+	switch (delta_approximation_.delta_approximation_type)
+	{
+		case DeltaApproximationType::d_m1: // Delta-Eddington (f = g^2)
+			f = g_asy * g_asy;
+			break;
+
+		case DeltaApproximationType::d_m2: // Delta-M (f = m2)
+			f = f_2nd;
+			break;
+
+		case DeltaApproximationType::Cumulative:
+		{
+			// ターゲット累積比率を超える場所を探す
+			auto it = std::lower_bound(cumsum.begin(), cumsum.end(), delta_approximation_.f_target * norm);
+			size_t idx = std::distance(cumsum.begin(), it);
+			if (idx >= cumsum.size()) 
+			{
+				idx = cumsum.size() - 1;
+			}
+			f = cumsum[idx] / norm;
+			break;
+		}
+
+		case DeltaApproximationType::FWHM:
+		{
+			// 簡易的かつ堅牢なFWHM探索
+			// ピーク値
+			double H = P[0][1];
+			
+			// バックグラウンド (後方散乱の平均値などで代用)
+			// 90度以降の最小値をバックグラウンドとするのが安全
+			double B = H;
+			for(size_t k = 0; k < P.size(); ++k) {
+				if(P[k][0] > PI/2.0 && P[k][1] < B) B = P[k][1];
+			}
+			
+			// 閾値
+			double T = B + delta_approximation_.fwhm_ratio * (H - B);
+			
+			// 閾値を下回る最初の点を探す
+			size_t kc = 0;
+			for(size_t k = 0; k < P.size(); ++k)
+			{
+				if(P[k][1] <= T)
+				{
+					kc = k;
+					break;
+				}
+			}
+
+			f = cumsum[kc] / norm;
+			break;
+		}
+		default:
+			break;
+	}
+
+	// f のクリッピング (物理的にあり得ない値を防ぐ)
+	f = std::clamp(f, 0.0, 0.99999);
+
+	// --- 3. 光学的パラメータのスケーリング ---
+	double tau0 = layer.optical_thickness;
+	double omega0 = layer.single_scattering_albedo;
+	
+	double denom = 1.0 - omega0 * f;
+	if (std::abs(denom) < 1.0e-12) denom = 1.0e-12; // 安全策
+
+	layer.optical_thickness = (1.0 - omega0 * f) * tau0;
+	layer.single_scattering_albedo = (1.0 - f) * omega0 / denom;
+
+	// --- 4. 位相関数の変形 (Truncation & Renormalization) ---
+	
+	// カットオフ角度のインデックスを再探索
+	// (fが決まれば、それに対応する k_cut を正確に決める必要がある)
+	size_t k_cut = 0;
+	for (size_t k = 0; k < cumsum.size(); ++k)
+	{
+		if (cumsum[k] / norm >= f)
+		{
+			k_cut = k;
+			break;
+		}
+	}
+
+	double A_c = cumsum[k_cut]; // 実際にカットされる領域の面積 (未正規化)
+	double alpha = 0.0;
+	
+	if (A_c > 1.0e-50) {
+		alpha = (f * norm) / A_c; // 目標の削除量 (f*norm) に対する比率
+	}
+	alpha = std::clamp(alpha, 0.0, 1.0);
+
+	double renormalize_factor = 1.0 / (1.0 - f);
+
+	for (size_t i = 0; i < P.size(); ++i)
+	{
+		double Pold = P[i][1];
+		double Pnew = Pold;
+
+		if (i <= k_cut)
+		{
+			// 前方ピーク部分を縮小 (Cut)
+			Pnew *= (1.0 - alpha);
+		}
+		
+		// 全体を拡大 (Renormalize)
+		Pnew *= renormalize_factor;
+
+		layer.scattering_phase_function[i][1] = Pnew;
+	}
+	
+	// 更新された位相関数から非対称因子を再計算
+	// (TMS法などでは g もスケーリング式があるが、数値計算的には再積分が確実)
+	layer.asymmetry_parameter = computeAsymmetryParameter(layer.scattering_phase_function);
+}
+
+inline RadiativeTransfer::RadiativeTransfer()
+{
+	return;
+}
+
+inline RadiativeTransfer::RadiativeTransfer(const std::string& config_filename)
+{
+	config_filename_ = config_filename;
+
+	loadConfiguration();
+}
+
+inline void RadiativeTransfer::loadConfiguration(void)
+{
+	configuration_ = ConfigurationLoader::load(config_filename_);
+	spectral_ = ModelBuilder::buildSpectral(configuration_);
+	geometry_ = ModelBuilder::buildGeometry(configuration_);
+	atmosphere_model_ = ModelBuilder::buildAtmosphereModel(configuration_, spectral_);
+
+
+	return;
 }
 
 }
