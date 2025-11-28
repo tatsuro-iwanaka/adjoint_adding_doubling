@@ -471,11 +471,11 @@ inline std::vector<Species> ModelBuilder::buildSpecies_(const Configuration& con
 
 					if(spectral.spectral_dimension == SpectralCoordinateDimension::Wavelength)
 					{
-						loaded_data = loadSpectralFile(s_input.filename_scattering_cross_section.value(), "wavelength", "scattering_cross_section", "m", "m2");
+						loaded_data = loadSpectralFile(s_input.filename_scattering_cross_section.value(), s_input.varname_scattering_cross_section_spectral.value(), s_input.varname_scattering_cross_section.value(), "m", "m2");
 					}
 					else if(spectral.spectral_dimension == SpectralCoordinateDimension::Wavenumber)
 					{
-						loaded_data = loadSpectralFile(s_input.filename_scattering_cross_section.value(), "wavenumber", "scattering_cross_section", "m-1", "m2");
+						loaded_data = loadSpectralFile(s_input.filename_scattering_cross_section.value(), s_input.varname_scattering_cross_section_spectral.value(), s_input.varname_scattering_cross_section.value(), "m-1", "m2");
 					}
 
 					for(int j = 0; j < loaded_data.size(); ++j)
@@ -504,11 +504,11 @@ inline std::vector<Species> ModelBuilder::buildSpecies_(const Configuration& con
 
 					if(spectral.spectral_dimension == SpectralCoordinateDimension::Wavelength)
 					{
-						loaded_data = loadSpectralFile(s_input.filename_absorption_cross_section.value(), "wavelength", "absorption_cross_section", "m", "m2");
+						loaded_data = loadSpectralFile(s_input.filename_absorption_cross_section.value(), s_input.varname_absorption_cross_section_spectral.value(), s_input.varname_absorption_cross_section.value(), "m", "m2");
 					}
 					else if(spectral.spectral_dimension == SpectralCoordinateDimension::Wavenumber)
 					{
-						loaded_data = loadSpectralFile(s_input.filename_absorption_cross_section.value(), "wavenumber", "absorption_cross_section", "m-1", "m2");
+						loaded_data = loadSpectralFile(s_input.filename_absorption_cross_section.value(), s_input.varname_absorption_cross_section_spectral.value(), s_input.varname_absorption_cross_section.value(), "m-1", "m2");
 					}
 
 					for(int j = 0; j < loaded_data.size(); ++j)
@@ -546,11 +546,11 @@ inline std::vector<Species> ModelBuilder::buildSpecies_(const Configuration& con
 
 					if(spectral.spectral_dimension == SpectralCoordinateDimension::Wavelength)
 					{
-						loaded_data = loadRefractiveIndexSpectralFile(s_input.filename_refractive_index_spectral.value(), "wavelength", "nr", "ni", "m");
+						loaded_data = loadRefractiveIndexSpectralFile(s_input.filename_refractive_index_spectral.value(), s_input.varname_refractive_index_spectral_spectral.value(), s_input.varname_refractive_index_spectral_nr.value(), s_input.varname_refractive_index_spectral_ni.value(), "m");
 					}
 					else if(spectral.spectral_dimension == SpectralCoordinateDimension::Wavenumber)
 					{
-						loaded_data = loadRefractiveIndexSpectralFile(s_input.filename_refractive_index_spectral.value(), "wavenumber", "nr", "ni", "m-1");
+						loaded_data = loadRefractiveIndexSpectralFile(s_input.filename_refractive_index_spectral.value(), s_input.varname_refractive_index_spectral_spectral.value(), s_input.varname_refractive_index_spectral_nr.value(), s_input.varname_refractive_index_spectral_ni.value(), "m-1");
 					}
 
 					for(int j = 0; j < n_layers; ++j)
@@ -595,11 +595,11 @@ inline std::vector<Species> ModelBuilder::buildSpecies_(const Configuration& con
 					std::vector<std::vector<std::vector<double>>> loaded_data;
 					if(spectral.spectral_dimension == SpectralCoordinateDimension::Wavelength)
 					{
-						loaded_data = loadRefractiveIndexSpectralVerticalFile(s_input.filename_refractive_index_spectral_vertical.value(), "altitude", "wavelength", "nr", "ni", "m", "m");
+						loaded_data = loadRefractiveIndexSpectralVerticalFile(s_input.filename_refractive_index_spectral_vertical.value(), s_input.varname_refractive_index_spectral_vertical_altitude.value(), s_input.varname_refractive_index_spectral_vertical_spectral.value(), s_input.varname_refractive_index_spectral_vertical_nr.value(), s_input.varname_refractive_index_spectral_vertical_ni.value(), "m", "m");
 					}
 					else if(spectral.spectral_dimension == SpectralCoordinateDimension::Wavenumber)
 					{
-						loaded_data = loadRefractiveIndexSpectralVerticalFile(s_input.filename_refractive_index_spectral_vertical.value(), "altitude", "wavenumber", "nr", "ni", "m", "m-1");
+						loaded_data = loadRefractiveIndexSpectralVerticalFile(s_input.filename_refractive_index_spectral_vertical.value(), s_input.varname_refractive_index_spectral_vertical_altitude.value(), s_input.varname_refractive_index_spectral_vertical_spectral.value(), s_input.varname_refractive_index_spectral_vertical_nr.value(), s_input.varname_refractive_index_spectral_vertical_ni.value(), "m", "m-1");
 					}
 
 					// 入力データの高度リストを作成（検索用）
@@ -1175,6 +1175,8 @@ inline AtmosphereModel ModelBuilder::buildAtmosphereModel(const Configuration& c
 		}
 	}
 
+	model.enable_atmospheric_emission = configuration.simulation.enable_atmospheric_emission.value();
+
 	model.species = buildSpecies_(configuration, model, spectral);
 
 	bool is_hitran = false;
@@ -1372,93 +1374,80 @@ inline SpectralInformation ModelBuilder::buildSpectral(const Configuration& conf
 	}
 	else if(configuration.spectral_coordinate.spectral_coordinate_type.value() == SpectralCoordinateType::Spectrum)
 	{
-		if(!configuration.spectral_coordinate.spectral_grid.empty())
+		if(configuration.instrument.convolution_kernel_type.value() == InstrumentFunctionType::Delta)
 		{
-			spectral.spectral_grid.resize(configuration.spectral_coordinate.spectral_grid.size());
-			double scale = getUnitInfo(configuration.spectral_coordinate.unit.value()).to_si;
-
-			for(int i = 0; i < configuration.spectral_coordinate.spectral_grid.size(); ++i)
+			if(configuration.spectral_coordinate.n_spectral.has_value())
 			{
-				spectral.spectral_grid[i] = configuration.spectral_coordinate.spectral_grid[i] * scale;
+				double scale = getUnitInfo(configuration.spectral_coordinate.unit.value()).to_si;
+
+				double min = configuration.spectral_coordinate.min.value() * scale;
+				double max = configuration.spectral_coordinate.max.value() * scale;
+				int n_spec = configuration.spectral_coordinate.n_spectral.value();
+				double d_spec = (max - min) / static_cast<double>(n_spec - 1);
+				spectral.spectral_grid.resize(n_spec);
+				
+				for(int i = 0; i < n_spec; ++i)
+				{
+					spectral.spectral_grid[i] = min + d_spec * static_cast<double>(i);
+				}
+			}
+			else
+			{
+				double scale = getUnitInfo(configuration.spectral_coordinate.unit.value()).to_si;
+
+				double min = configuration.spectral_coordinate.min.value() * scale;
+				double max = configuration.spectral_coordinate.max.value() * scale;
+
+				double d_spec = configuration.spectral_coordinate.increment.value() * scale;
+				int n_spec = static_cast<int>((max - min) / d_spec);
+				spectral.spectral_grid.resize(n_spec);
+
+				for(int i = 0; i < n_spec; ++i)
+				{
+					spectral.spectral_grid[i] = min + d_spec * static_cast<double>(i);
+				}
 			}
 		}
-		else
+		else if(configuration.instrument.convolution_kernel_type.value() == InstrumentFunctionType::Rectangle)
 		{
-			if(configuration.instrument.convolution_kernel_type.value() == InstrumentFunctionType::Delta)
+			// パディングが必要
+			double scale = getUnitInfo(configuration.spectral_coordinate.unit.value()).to_si;
+			double min = configuration.spectral_coordinate.min.value() * scale;
+			double max = configuration.spectral_coordinate.max.value() * scale;
+			double width = configuration.instrument.kernel_width.value() * scale;
+
+			int osc = configuration.instrument.over_sampling_count.value() % 2 == 0 ? configuration.instrument.over_sampling_count.value() + 1 : configuration.instrument.over_sampling_count.value();
+			// ここでカーネルとspectralグリッドを生成
+			double d_spec = width / static_cast<double>(osc - 1);
+			int n_spec = static_cast<int>((max - min) / d_spec);
+			spectral.spectral_grid.resize(n_spec + (osc - 1));
+			
+
+			for(int i = 0; i < n_spec + (osc - 1); ++i)
 			{
-				if(configuration.spectral_coordinate.n_spectral.has_value())
-				{
-					double scale = getUnitInfo(configuration.spectral_coordinate.unit.value()).to_si;
-
-					double min = configuration.spectral_coordinate.min.value() * scale;
-					double max = configuration.spectral_coordinate.max.value() * scale;
-					int n_spec = configuration.spectral_coordinate.n_spectral.value();
-					double d_spec = (max - min) / static_cast<double>(n_spec - 1);
-					spectral.spectral_grid.resize(n_spec);
-					
-					for(int i = 0; i < n_spec; ++i)
-					{
-						spectral.spectral_grid[i] = min + d_spec * static_cast<double>(i);
-					}
-				}
-				else
-				{
-					double scale = getUnitInfo(configuration.spectral_coordinate.unit.value()).to_si;
-
-					double min = configuration.spectral_coordinate.min.value() * scale;
-					double max = configuration.spectral_coordinate.max.value() * scale;
-
-					double d_spec = configuration.spectral_coordinate.increment.value() * scale;
-					int n_spec = static_cast<int>((max - min) / d_spec);
-					spectral.spectral_grid.resize(n_spec);
-
-					for(int i = 0; i < n_spec; ++i)
-					{
-						spectral.spectral_grid[i] = min + d_spec * static_cast<double>(i);
-					}
-				}
+				spectral.spectral_grid[i] = min + static_cast<double>(i - osc / 2) * d_spec;
 			}
-			else if(configuration.instrument.convolution_kernel_type.value() == InstrumentFunctionType::Rectangle)
+
+			spectral.convolution_kernel = generateRectangularKernel(osc);
+		}
+		else if(configuration.instrument.convolution_kernel_type.value() == InstrumentFunctionType::Gauss)
+		{
+			double scale = getUnitInfo(configuration.spectral_coordinate.unit.value()).to_si;
+			double min = configuration.spectral_coordinate.min.value() * scale;
+			double max = configuration.spectral_coordinate.max.value() * scale;
+			double sigma = configuration.instrument.kernel_sigma.value() * scale;
+			double cut_off_sigma = configuration.instrument.kernel_cut_off_sigma.value();
+			int osc = configuration.instrument.over_sampling_count.value() % 2 == 0 ? configuration.instrument.over_sampling_count.value() + 1 : configuration.instrument.over_sampling_count.value();
+			double d_spec = 2.0 * cut_off_sigma * sigma / static_cast<double>(osc - 1);
+			int n_spec = static_cast<int>((max - min) / d_spec);
+			spectral.spectral_grid.resize(n_spec + (osc - 1));
+			
+			for(int i = 0; i < n_spec + (osc - 1); ++i)
 			{
-				// パディングが必要
-				double scale = getUnitInfo(configuration.spectral_coordinate.unit.value()).to_si;
-				double min = configuration.spectral_coordinate.min.value() * scale;
-				double max = configuration.spectral_coordinate.max.value() * scale;
-				double width = configuration.instrument.kernel_width.value() * scale;
-
-				int osc = configuration.instrument.over_sampling_count.value() % 2 == 0 ? configuration.instrument.over_sampling_count.value() + 1 : configuration.instrument.over_sampling_count.value();
-				// ここでカーネルとspectralグリッドを生成
-				double d_spec = width / static_cast<double>(osc - 1);
-				int n_spec = static_cast<int>((max - min) / d_spec);
-				spectral.spectral_grid.resize(n_spec + (osc - 1));
-				
-
-				for(int i = 0; i < n_spec + (osc - 1); ++i)
-				{
-					spectral.spectral_grid[i] = min + static_cast<double>(i - osc / 2) * d_spec;
-				}
-
-				spectral.convolution_kernel = generateRectangularKernel(osc);
+				spectral.spectral_grid[i] = min + static_cast<double>(i - osc / 2) * d_spec;
 			}
-			else if(configuration.instrument.convolution_kernel_type.value() == InstrumentFunctionType::Gauss)
-			{
-				double scale = getUnitInfo(configuration.spectral_coordinate.unit.value()).to_si;
-				double min = configuration.spectral_coordinate.min.value() * scale;
-				double max = configuration.spectral_coordinate.max.value() * scale;
-				double sigma = configuration.instrument.kernel_sigma.value() * scale;
-				double cut_off_sigma = configuration.instrument.kernel_cut_off_sigma.value();
-				int osc = configuration.instrument.over_sampling_count.value() % 2 == 0 ? configuration.instrument.over_sampling_count.value() + 1 : configuration.instrument.over_sampling_count.value();
-				double d_spec = 2.0 * cut_off_sigma * sigma / static_cast<double>(osc - 1);
-				int n_spec = static_cast<int>((max - min) / d_spec);
-				spectral.spectral_grid.resize(n_spec + (osc - 1));
-				
-				for(int i = 0; i < n_spec + (osc - 1); ++i)
-				{
-					spectral.spectral_grid[i] = min + static_cast<double>(i - osc / 2) * d_spec;
-				}
 
-				spectral.convolution_kernel = generateGaussianKernel(sigma, osc, cut_off_sigma);
-			}
+			spectral.convolution_kernel = generateGaussianKernel(sigma, osc, cut_off_sigma);
 		}
 	}
 	else if(configuration.spectral_coordinate.spectral_coordinate_type.value() == SpectralCoordinateType::Bandpass)
@@ -1500,7 +1489,7 @@ inline SpectralInformation ModelBuilder::buildSpectral(const Configuration& conf
 		{
 			if(spectral.spectral_dimension == SpectralCoordinateDimension::Wavelength)
 			{
-				auto loaded_data = loadSpectralFile(configuration.instrument.filename_filter_function.value(), "wavelength", "transmittance", "m", "dimensionless");
+				auto loaded_data = loadSpectralFile(configuration.instrument.filename_filter_function.value(), configuration.instrument.varname_spectral.value(), configuration.instrument.varname_transmittance.value(), "m", "dimensionless");
 				auto grid = generateSpectralGridBandpass(configuration.instrument.sampling_count.value(), loaded_data);
 				spectral.spectral_grid = grid[0];
 				spectral.filter_function = grid[1];
@@ -1508,7 +1497,7 @@ inline SpectralInformation ModelBuilder::buildSpectral(const Configuration& conf
 			}
 			else if(spectral.spectral_dimension == SpectralCoordinateDimension::Wavenumber)
 			{
-				auto loaded_data = loadSpectralFile(configuration.instrument.filename_filter_function.value(), "wavenumber", "transmittance", "m-1", "dimensionless");
+				auto loaded_data = loadSpectralFile(configuration.instrument.filename_filter_function.value(), configuration.instrument.varname_spectral.value(), configuration.instrument.varname_transmittance.value(), "m-1", "dimensionless");
 				auto grid = generateSpectralGridBandpass(configuration.instrument.sampling_count.value(), loaded_data);
 				spectral.spectral_grid = grid[0];
 				spectral.filter_function = grid[1];

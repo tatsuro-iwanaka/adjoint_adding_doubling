@@ -17,575 +17,285 @@
 namespace radiative_transfer
 {
 
-inline void Layer::exportPhaseFunction(std::string filename)
+inline void RadiativeTransfer::exportResultNetCDF(void)
 {
-	std::ofstream output(filename);
+	std::string filename = configuration_.simulation.directory_name.value() + configuration_.simulation.result_name.value();
 
-	for(int i = 0; i < scattering_phase_function.size(); i ++)
-	{
-		output << std::fixed << std::setprecision(15) << std::scientific << scattering_phase_function[i][0] << ", " << scattering_phase_function[i][1] << std::endl;
-	}
-
-	return;
-}
-
-inline void RadiativeTransfer::exportResultNetCDF(std::string filename)
-{
 	netCDF::NcFile outputFile(filename, netCDF::NcFile::replace);
 
 	//Simulation configuration
-	outputFile.putAtt("simulation_name", configuration.simulation_name);
+	outputFile.putAtt("simulation_name", configuration_.simulation.simulation_name.value());
 
 	// 次元の定義
-	Nphi = Ntheta * 2;
-	int Nmode = M;
-	int Nlayer = result.altitude.size();
+	int Ntheta = geometry_.Ntheta;
+	int Nphi = geometry_.Nphi;
+	int Nmode = geometry_.M;
+	int Nlayer = result_.altitude.size();
+	int Nspectral = spectral_.spectral_grid.size();
+
+	netCDF::NcDim dim_theta_e = outputFile.addDim("theta_e", Ntheta);
+	netCDF::NcDim dim_theta_i = outputFile.addDim("theta_i", Ntheta);
+	netCDF::NcDim dim_phi = outputFile.addDim("delta_phi", Nphi);
+	netCDF::NcDim dim_M = outputFile.addDim("M", Nmode + 1);
+	netCDF::NcDim dim_layer = outputFile.addDim("layer", Nlayer);
+	netCDF::NcDim dim_spectral;
 	
-	if(configuration.is_wavenumber == true)
+	if(spectral_.spectral_dimension == SpectralCoordinateDimension::Wavenumber)
 	{
-		int n_wavenumber = result.wavenumber.size();
+		dim_spectral = outputFile.addDim("wavenumber", Nspectral);
+	}
+	else if(spectral_.spectral_dimension == SpectralCoordinateDimension::Wavelength)
+	{
+		dim_spectral = outputFile.addDim("wavelength", Nspectral);
+	}
 
-		netCDF::NcDim dim_theta_e = outputFile.addDim("theta_e", Ntheta);
-		netCDF::NcDim dim_theta_i = outputFile.addDim("theta_i", Ntheta);
-		netCDF::NcDim dim_phi = outputFile.addDim("delta_phi", Nphi);
-		netCDF::NcDim dim_M = outputFile.addDim("M", Nmode + 1);
-		netCDF::NcDim dim_layer = outputFile.addDim("layer", Nlayer);
-		netCDF::NcDim dim_wavenumber = outputFile.addDim("wavenumber", n_wavenumber);
+	std::vector<double> phi;
+	std::vector<int> _M;
+	
+	for(int i = 0; i < Nphi; i ++)
+	{
+		phi.push_back(PI / double(Nphi - 1) * double(i));
+	}
 
-		std::vector<double> phi;
-		std::vector<int> _M;
-		
-		for(int i = 0; i < Nphi; i ++)
+	for(int i = 0; i < Nmode + 1; i ++)
+	{
+		_M.push_back(i);
+	}
+
+	netCDF::NcVar var_theta_e = outputFile.addVar("theta_e", netCDF::ncDouble, dim_theta_e);
+	var_theta_e.setCompression(true, true, 5);
+	var_theta_e.putAtt("long_name", "emission zenith angle");
+	var_theta_e.putAtt("units", "radian");
+	var_theta_e.putVar(result_.theta_e.data());
+	netCDF::NcVar var_theta_i = outputFile.addVar("theta_i", netCDF::ncDouble, dim_theta_i);
+	var_theta_i.setCompression(true, true, 5);
+	var_theta_i.putAtt("long_name", "incidence zenith angle");
+	var_theta_i.putAtt("units", "radian");
+	var_theta_i.putVar(result_.theta_i.data());
+	netCDF::NcVar var_phi = outputFile.addVar("delta_phi", netCDF::ncDouble, dim_phi);
+	var_phi.setCompression(true, true, 5);
+	var_phi.putAtt("long_name", "azimuthal difference");
+	var_phi.putAtt("units", "radian");
+	var_phi.putVar(phi.data());
+	netCDF::NcVar var_M = outputFile.addVar("M", netCDF::ncInt, dim_M);
+	var_M.setCompression(true, true, 5);
+	var_M.putAtt("long_name", "Fourier modes");
+	var_M.putAtt("units", "dimensionless");
+	var_M.putVar(_M.data());
+	netCDF::NcVar var_spectral;
+	if(spectral_.spectral_dimension == SpectralCoordinateDimension::Wavenumber)
+	{
+		var_spectral = outputFile.addVar("wavenumber", netCDF::ncDouble, dim_spectral);
+		var_spectral.putAtt("long_name", "wavenumber");
+		var_spectral.putAtt("units", "m-1");
+		var_spectral.putVar(spectral_.spectral_grid.data());
+	}
+	else if(spectral_.spectral_dimension == SpectralCoordinateDimension::Wavelength)
+	{
+		var_spectral = outputFile.addVar("wavelength", netCDF::ncDouble, dim_spectral);
+		var_spectral.putAtt("long_name", "wavelength");
+		var_spectral.putAtt("units", "m");
+		var_spectral.putVar(spectral_.spectral_grid.data());
+	}
+	
+	var_spectral.setCompression(true, true, 5);
+	
+	std::vector<double> reflectance_flat(Nspectral * Ntheta * Ntheta * Nphi);
+
+	for(int l = 0; l < Nspectral; l ++)
+	{
+		for(int e = 0; e < Ntheta; e ++)
 		{
-			phi.push_back(PI / double(Nphi - 1) * double(i));
+			for(int i = 0; i < Ntheta; i ++)
+			{
+				for(int p = 0; p < Nphi; p ++)
+				{
+					int idx = l * (Ntheta * Ntheta * Nphi) + e * (Ntheta * Nphi) + i * Nphi + p;
+
+					double r = result_.spectral_data[l].reflectance_m_top_cos[0](e, i);
+
+					for(int m = 1; m <= geometry_.M; m ++)
+					{
+						double rcos = result_.spectral_data[l].reflectance_m_top_cos[m](e, i);
+						double rsin = result_.spectral_data[l].reflectance_m_top_sin[m](e, i);
+
+						r += 2.0 * (rcos * std::cos(double(m) * phi[p]) + rsin * std::sin(double(m) * phi[p]));
+					}
+
+					reflectance_flat[idx] = r;
+				}
+			}
 		}
+	}
 
-		for(int i = 0; i < Nmode + 1; i ++)
-		{
-			_M.push_back(i);
-		}
+	netCDF::NcVar var_reflectance = outputFile.addVar("reflectance", netCDF::ncDouble, {dim_spectral, dim_theta_e, dim_theta_i, dim_phi});
+	var_reflectance.setCompression(true, true, 5);
+	if(spectral_.spectral_dimension == SpectralCoordinateDimension::Wavenumber)
+	{
+		var_reflectance.putAtt("long_name", "reflectance (wavenumber, emission zenith angle, incidence zenith angle, azimuthal difference)");
+	}
+	else if(spectral_.spectral_dimension == SpectralCoordinateDimension::Wavelength)
+	{
+		var_reflectance.putAtt("long_name", "reflectance (wavelength, emission zenith angle, incidence zenith angle, azimuthal difference)");
+	}
+	var_reflectance.putAtt("units", "dimensionless");
+	var_reflectance.putVar(reflectance_flat.data());
 
-		netCDF::NcVar var_theta_e = outputFile.addVar("theta_e", netCDF::ncDouble, dim_theta_e);
-		var_theta_e.setCompression(true, true, 5);
-		var_theta_e.putAtt("long_name", "emission zenith angle");
-		var_theta_e.putAtt("units", "radian");
-		var_theta_e.putVar(result.theta_e.data());
-		netCDF::NcVar var_theta_i = outputFile.addVar("theta_i", netCDF::ncDouble, dim_theta_i);
-		var_theta_i.setCompression(true, true, 5);
-		var_theta_i.putAtt("long_name", "incidence zenith angle");
-		var_theta_i.putAtt("units", "radian");
-		var_theta_i.putVar(result.theta_i.data());
-		netCDF::NcVar var_phi = outputFile.addVar("delta_phi", netCDF::ncDouble, dim_phi);
-		var_phi.setCompression(true, true, 5);
-		var_phi.putAtt("long_name", "azimuthal difference");
-		var_phi.putAtt("units", "radian");
-		var_phi.putVar(phi.data());
-		netCDF::NcVar var_M = outputFile.addVar("M", netCDF::ncInt, dim_M);
-		var_M.setCompression(true, true, 5);
-		var_M.putAtt("long_name", "Fourier modes");
-		var_M.putAtt("units", "dimensionless");
-		var_M.putVar(_M.data());
-		netCDF::NcVar var_wavenumber = outputFile.addVar("wavenumber", netCDF::ncDouble, dim_wavenumber);
-		var_wavenumber.setCompression(true, true, 5);
-		var_wavenumber.putAtt("long_name", "wavenumber");
-		var_wavenumber.putAtt("units", "m-1");
-		var_wavenumber.putVar(result.wavenumber.data());
+	std::vector<double> reflectance_am(Nspectral * (Nmode + 1) * Ntheta * Ntheta);
+	std::vector<double> reflectance_bm(Nspectral * (Nmode + 1) * Ntheta * Ntheta);
 
-		std::vector<double> reflectance_flat(n_wavenumber * Ntheta * Ntheta * Nphi);
-
-		for(int l = 0; l < n_wavenumber; l ++)
+	for(int l = 0; l < Nspectral; l ++)
+	{
+		for(int m = 0; m < Nmode + 1; m ++)
 		{
 			for(int e = 0; e < Ntheta; e ++)
 			{
 				for(int i = 0; i < Ntheta; i ++)
 				{
-					for(int p = 0; p < Nphi; p ++)
-					{
-						int idx = l * (Ntheta * Ntheta * Nphi) + e * (Ntheta * Nphi) + i * Nphi + p;
+					int idx = l * ((Nmode + 1) * Ntheta * Ntheta) + m * (Ntheta * Ntheta) + e * Ntheta + i;
 
-						double r = result.reflectance_m_top_cos[l][0](e, i);
-
-						for(int m = 1; m <= geometry.M; m ++)
-						{
-							double rcos = result.reflectance_m_top_cos[l][m](e, i);
-							double rsin = result.reflectance_m_top_sin[l][m](e, i);
-
-							r += 2.0 * (rcos * std::cos(double(m) * phi[p]) + rsin * std::sin(double(m) * phi[p]));
-						}
-
-						reflectance_flat[idx] = r;
-					}
+					reflectance_am[idx] = result_.spectral_data[l].reflectance_m_top_cos[m](e, i);
+					reflectance_bm[idx] = result_.spectral_data[l].reflectance_m_top_sin[m](e, i);
 				}
 			}
 		}
+	}
 
-		netCDF::NcVar var_reflectance = outputFile.addVar("reflectance", netCDF::ncDouble, {dim_wavenumber, dim_theta_e, dim_theta_i, dim_phi});
-		var_reflectance.setCompression(true, true, 5);
-		var_reflectance.putAtt("long_name", "reflectance (wavenumber, emission zenith angle, incidence zenith angle, azimuthal difference)");
-		var_reflectance.putAtt("units", "dimensionless");
-		var_reflectance.putVar(reflectance_flat.data());
+	netCDF::NcVar var_reflectance_am = outputFile.addVar("reflectance_am", netCDF::ncDouble, {dim_spectral, dim_M, dim_theta_e, dim_theta_i});
+	var_reflectance_am.setCompression(true, true, 5);
+	var_reflectance_am.putAtt("long_name", "Fourier cosine coefficients a_m for azimuthal expansion of reflectance.");
+	var_reflectance_am.putAtt("units", "dimensionless");
+	var_reflectance_am.putVar(reflectance_am.data());
 
-		std::vector<double> reflectance_am(n_wavenumber * (Nmode + 1) * Ntheta * Ntheta);
-		std::vector<double> reflectance_bm(n_wavenumber * (Nmode + 1) * Ntheta * Ntheta);
+	netCDF::NcVar var_reflectance_bm = outputFile.addVar("reflectance_bm", netCDF::ncDouble, {dim_spectral, dim_M, dim_theta_e, dim_theta_i});
+	var_reflectance_bm.setCompression(true, true, 5);
+	var_reflectance_bm.putAtt("long_name", "Fourier sine coefficients b_m for azimuthal expansion of reflectance.");
+	var_reflectance_bm.putAtt("units", "dimensionless");
+	var_reflectance_bm.putVar(reflectance_bm.data());
 
-		for(int l = 0; l < n_wavenumber; l ++)
+	std::vector<double> tau, ka, ks, omega, g;
+	for(int l = 0; l < Nspectral; l ++)
+	{
+		for(int i = 0; i < Nlayer; i ++)
 		{
-			for(int m = 0; m < Nmode + 1; m ++)
-			{
-				for(int e = 0; e < Ntheta; e ++)
-				{
-					for(int i = 0; i < Ntheta; i ++)
-					{
-						int idx = l * ((Nmode + 1) * Ntheta * Ntheta) + m * (Ntheta * Ntheta) + e * Ntheta + i;
-
-						reflectance_am[idx] = result.reflectance_m_top_cos[l][m](e, i);
-						reflectance_bm[idx] = result.reflectance_m_top_sin[l][m](e, i);
-					}
-				}
-			}
+			tau.push_back(result_.spectral_data[l].optical_thickness[i]);
+			ka.push_back(result_.spectral_data[l].absorption_coefficient[i]);
+			ks.push_back(result_.spectral_data[l].scattering_coefficient[i]);
+			omega.push_back(result_.spectral_data[l].single_scattering_albedo[i]);
+			g.push_back(result_.spectral_data[l].asymmetry_parameter[i]);
 		}
+	}
 
-		netCDF::NcVar var_reflectance_am = outputFile.addVar("reflectance_am", netCDF::ncDouble, {dim_wavenumber, dim_M, dim_theta_e, dim_theta_i});
-		var_reflectance_am.setCompression(true, true, 5);
-		var_reflectance_am.putAtt("long_name", "Fourier cosine coefficients a_m for azimuthal expansion of reflectance.");
-		var_reflectance_am.putAtt("units", "dimensionless");
-		var_reflectance_am.putVar(reflectance_am.data());
+	// std::cout << "thru" << std::endl;
 
-		netCDF::NcVar var_reflectance_bm = outputFile.addVar("reflectance_bm", netCDF::ncDouble, {dim_wavenumber, dim_M, dim_theta_e, dim_theta_i});
-		var_reflectance_bm.setCompression(true, true, 5);
-		var_reflectance_bm.putAtt("long_name", "Fourier sine coefficients b_m for azimuthal expansion of reflectance.");
-		var_reflectance_bm.putAtt("units", "dimensionless");
-		var_reflectance_bm.putVar(reflectance_bm.data());
+	netCDF::NcVar var_z = outputFile.addVar("altitude", netCDF::ncDouble, dim_layer);
+	var_z.putAtt("long_name", "altitude of center of layer");
+	var_z.putAtt("units", "m");
+	var_z.putVar(result_.altitude.data());
+	netCDF::NcVar var_z_top = outputFile.addVar("altitude_top", netCDF::ncDouble, dim_layer);
+	var_z_top.putAtt("long_name", "altitude of top of layer");
+	var_z_top.putAtt("units", "m");
+	var_z_top.putVar(result_.altitude_top.data());
+	netCDF::NcVar var_z_bottom = outputFile.addVar("altitude_bottom", netCDF::ncDouble, dim_layer);
+	var_z_bottom.putAtt("long_name", "altitude of bottom of layer");
+	var_z_bottom.putAtt("units", "m");
+	var_z_bottom.putVar(result_.altitude_bottom.data());
+	netCDF::NcVar var_physical_thickness = outputFile.addVar("physical_thickness", netCDF::ncDouble, dim_layer);
+	var_physical_thickness.putAtt("long_name", "physical thickness of layer");
+	var_physical_thickness.putAtt("units", "m");
+	var_physical_thickness.putVar(result_.physical_thickness.data());
+	netCDF::NcVar var_T = outputFile.addVar("temperature", netCDF::ncDouble, dim_layer);
+	var_T.putAtt("long_name", "temperature");
+	var_T.putAtt("units", "K");
+	var_T.putVar(result_.temperature.data());
+	netCDF::NcVar var_P = outputFile.addVar("pressure", netCDF::ncDouble, dim_layer);
+	var_P.putAtt("long_name", "pressure");
+	var_P.putAtt("units", "Pa");
+	var_P.putVar(result_.pressure.data());
+	netCDF::NcVar var_ND = outputFile.addVar("number_density", netCDF::ncDouble, dim_layer);
+	var_ND.putAtt("long_name", "number density");
+	var_ND.putAtt("units", "molecule/m^3");
+	var_ND.putVar(result_.number_density.data());
 
-		std::vector<double> tau, ka, ks, omega, g;
-		for(int l = 0; l < n_wavenumber; l ++)
+	if(atmosphere_model_.enable_atmospheric_emission)
+	{
+		netCDF::NcVar var_emission = outputFile.addVar("thermal_emission", netCDF::ncDouble, {dim_spectral, dim_theta_e});
+		var_emission.setCompression(true, true, 5);
+		if(spectral_.spectral_dimension == SpectralCoordinateDimension::Wavenumber)
 		{
-			for(int i = 0; i < Nlayer; i ++)
-			{
-				tau.push_back(result.optical_thickness[l][i]);
-				ka.push_back(result.absorption_coefficient[l][i]);
-				ks.push_back(result.scattering_coefficient[l][i]);
-				omega.push_back(result.single_scattering_albedo[l][i]);
-				g.push_back(result.asymmetry_parameter[l][i]);
-			}
-		}
-
-		// std::cout << "thru" << std::endl;
-
-		netCDF::NcVar var_z = outputFile.addVar("altitude", netCDF::ncDouble, dim_layer);
-		var_z.putAtt("long_name", "altitude of center of layer");
-		var_z.putAtt("units", "m");
-		var_z.putVar(result.altitude.data());
-		netCDF::NcVar var_z_top = outputFile.addVar("altitude_top", netCDF::ncDouble, dim_layer);
-		var_z_top.putAtt("long_name", "altitude of top of layer");
-		var_z_top.putAtt("units", "m");
-		var_z_top.putVar(result.altitude_top.data());
-		netCDF::NcVar var_z_bottom = outputFile.addVar("altitude_bottom", netCDF::ncDouble, dim_layer);
-		var_z_bottom.putAtt("long_name", "altitude of bottom of layer");
-		var_z_bottom.putAtt("units", "m");
-		var_z_bottom.putVar(result.altitude_bottom.data());
-		netCDF::NcVar var_physical_thickness = outputFile.addVar("physical_thickness", netCDF::ncDouble, dim_layer);
-		var_physical_thickness.putAtt("long_name", "physical thickness of layer");
-		var_physical_thickness.putAtt("units", "m");
-		var_physical_thickness.putVar(result.physical_thickness.data());
-		netCDF::NcVar var_T = outputFile.addVar("temperature", netCDF::ncDouble, dim_layer);
-		var_T.putAtt("long_name", "temperature");
-		var_T.putAtt("units", "K");
-		var_T.putVar(result.temperature.data());
-		netCDF::NcVar var_P = outputFile.addVar("pressure", netCDF::ncDouble, dim_layer);
-		var_P.putAtt("long_name", "pressure");
-		var_P.putAtt("units", "Pa");
-		var_P.putVar(result.pressure.data());
-		netCDF::NcVar var_ND = outputFile.addVar("number_density", netCDF::ncDouble, dim_layer);
-		var_ND.putAtt("long_name", "number density");
-		var_ND.putAtt("units", "molecule/m^3");
-		var_ND.putVar(result.number_density.data());
-
-		if(configuration.enable_atmospheric_emission == true)
-		{
-			netCDF::NcVar var_emission = outputFile.addVar("thermal_emission", netCDF::ncDouble, {dim_wavenumber, dim_theta_e});
-			var_emission.setCompression(true, true, 5);
 			var_emission.putAtt("long_name", "atmospheric emission (wavenumber, emission direction)");
 			var_emission.putAtt("units", "W/m2/sr/m-1");
-
-			std::vector<double> source_up;
-			for(int l = 0; l < n_wavenumber; l ++)
-			{
-				for(int e = 0; e < Ntheta; e ++)
-				{
-					source_up.push_back(result.source_up[l](e));
-				}
-			}
-
-			var_emission.putVar(source_up.data());
 		}
-
-		netCDF::NcVar var_ka = outputFile.addVar("absorption_coefficient", netCDF::ncDouble, {dim_wavenumber, dim_layer});
-		var_ka.putAtt("long_name", "absorption coefficient ka");
-		var_ka.putAtt("units", "1/m");
-		var_ka.putVar(ka.data());
-		netCDF::NcVar var_ks = outputFile.addVar("scattering_coefficient", netCDF::ncDouble, {dim_wavenumber, dim_layer});
-		var_ks.putAtt("long_name", "scattering coefficient ks");
-		var_ks.putAtt("units", "1/m");
-		var_ks.putVar(ks.data());
-		netCDF::NcVar var_tau = outputFile.addVar("optical_thickness", netCDF::ncDouble, {dim_wavenumber, dim_layer});
-		var_tau.putAtt("long_name", "optical thickness: dz * (ks + ka)");
-		var_tau.putAtt("units", "dimensionless");
-		var_tau.putVar(tau.data());
-		netCDF::NcVar var_omega = outputFile.addVar("single_scattering_albedo", netCDF::ncDouble, {dim_wavenumber, dim_layer});
-		var_omega.putAtt("long_name", "single scattering albedo: ks/(ks + ka)");
-		var_omega.putAtt("units", "dimensionless");
-		var_omega.putVar(omega.data());
-		netCDF::NcVar var_g = outputFile.addVar("asymmetry_parameter", netCDF::ncDouble, {dim_wavenumber, dim_layer});
-		var_g.putAtt("long_name", "asymmetry parameter");
-		var_g.putAtt("units", "dimensionless");
-		var_g.putVar(g.data());
-		
-		int n_species = configuration.species.size();
-		netCDF::NcVar var_n_species = outputFile.addVar("n_species", netCDF::ncInt);
-		var_n_species.putAtt("long_name", "number of species");
-		var_n_species.putVar(&n_species);
-
-
-		//group for species
-		for(int i = 0; i < configuration.species.size(); i ++)
+		else if(spectral_.spectral_dimension == SpectralCoordinateDimension::Wavelength)
 		{
-			netCDF::NcGroup group = outputFile.addGroup("species_" + std::to_string(i + 1));
-
-			group.putAtt("name", configuration.species[i].name);		
-
-			if(configuration.species[i].is_same_layering_atmosphere == false)
-			{
-				netCDF::NcVar var_mixing_ratio = group.addVar("mixing_ratio", netCDF::ncDouble, dim_layer);
-				var_mixing_ratio.putAtt("long_name", "mixing ratio");
-				var_mixing_ratio.putAtt("units", "dimensionless");
-				std::vector<double> mixing_ratio;
-				for(int nz = 0; nz < Nlayer; nz ++)
-				{
-					if(configuration.species[i].vertical_profile_type == VerticalProfileType::MixingRatio)
-					{
-						mixing_ratio.push_back(configuration.species[i].computeMixingRatio(result.altitude[nz]));
-					}
-					else if(configuration.species[i].vertical_profile_type == VerticalProfileType::NumberDensity)
-					{
-						mixing_ratio.push_back(configuration.species[i].computeNumberDensity(result.altitude[nz]) / result.number_density[nz]);
-					}
-				}
-				var_mixing_ratio.putVar(mixing_ratio.data());
-
-				netCDF::NcVar var_species_number_density = group.addVar("species_number_density", netCDF::ncDouble, dim_layer);
-				var_species_number_density.putAtt("long_name", "number density");
-				var_species_number_density.putAtt("units", "molecule/m^3");
-				std::vector<double> nd;
-				for(int nz = 0; nz < Nlayer; nz ++)
-				{
-					if(configuration.species[i].vertical_profile_type == VerticalProfileType::MixingRatio)
-					{
-						nd.push_back(configuration.species[i].computeMixingRatio(result.altitude[nz]) * result.number_density[nz]);
-					}
-					else if(configuration.species[i].vertical_profile_type == VerticalProfileType::NumberDensity)
-					{
-						nd.push_back(configuration.species[i].computeNumberDensity(result.altitude[nz]));
-					}
-				}
-				
-				var_species_number_density.putVar(nd.data());
-			}
-			else
-			{
-				netCDF::NcVar var_mixing_ratio = group.addVar("mixing_ratio", netCDF::ncDouble, dim_layer);
-				var_mixing_ratio.putAtt("long_name", "mixing ratio");
-				var_mixing_ratio.putAtt("units", "dimensionless");
-				std::vector<double> mixing_ratio;
-				for(int nz = 0; nz < Nlayer; nz ++)
-				{
-					if(configuration.species[i].vertical_profile_type == VerticalProfileType::MixingRatio)
-					{
-						mixing_ratio.push_back(configuration.species[i].vertical_profile[nz][1]);
-					}
-					else if(configuration.species[i].vertical_profile_type == VerticalProfileType::NumberDensity)
-					{
-						mixing_ratio.push_back(configuration.species[i].vertical_profile[nz][1] / result.number_density[nz]);
-					}
-					else if(configuration.species[i].vertical_profile_type == VerticalProfileType::ColumnNumberDensity)
-					{
-						mixing_ratio.push_back(configuration.species[i].vertical_profile[nz][1] / result.physical_thickness[nz] / result.number_density[nz]);
-					}
-				}
-				var_mixing_ratio.putVar(mixing_ratio.data());
-
-				netCDF::NcVar var_species_number_density = group.addVar("species_number_density", netCDF::ncDouble, dim_layer);
-				var_species_number_density.putAtt("long_name", "number density");
-				var_species_number_density.putAtt("units", "molecule/m^3");
-				std::vector<double> nd;
-				for(int nz = 0; nz < Nlayer; nz ++)
-				{
-					if(configuration.species[i].vertical_profile_type == VerticalProfileType::MixingRatio)
-					{
-						nd.push_back(configuration.species[i].vertical_profile[nz][1] * result.number_density[nz]);
-					}
-					else if(configuration.species[i].vertical_profile_type == VerticalProfileType::NumberDensity)
-					{
-						nd.push_back(configuration.species[i].vertical_profile[nz][1]);
-					}
-					else if(configuration.species[i].vertical_profile_type == VerticalProfileType::ColumnNumberDensity)
-					{
-						nd.push_back(configuration.species[i].vertical_profile[nz][1] / result.physical_thickness[nz]);
-					}
-				}
-				
-				var_species_number_density.putVar(nd.data());
-			}
-		}
-	}
-	else
-	{
-		int Nlambda = result.wavelength.size();
-
-		netCDF::NcDim dim_theta_e = outputFile.addDim("theta_e", Ntheta);
-		netCDF::NcDim dim_theta_i = outputFile.addDim("theta_i", Ntheta);
-		netCDF::NcDim dim_phi = outputFile.addDim("delta_phi", Nphi);
-		netCDF::NcDim dim_M = outputFile.addDim("M", Nmode + 1);
-		netCDF::NcDim dim_layer = outputFile.addDim("layer", Nlayer);
-		netCDF::NcDim dim_wavelength = outputFile.addDim("wavelength", Nlambda);
-
-		std::vector<double> phi;
-		std::vector<int> _M;
-		
-		for(int i = 0; i < Nphi; i ++)
-		{
-			phi.push_back(PI / double(Nphi - 1) * double(i));
+			var_emission.putAtt("long_name", "atmospheric emission (wavelength, emission direction)");
+			var_emission.putAtt("units", "W/m2/sr/m");
 		}
 
-		for(int i = 0; i < Nmode + 1; i ++)
-		{
-			_M.push_back(i);
-		}
-
-		netCDF::NcVar var_theta_e = outputFile.addVar("theta_e", netCDF::ncDouble, dim_theta_e);
-		var_theta_e.setCompression(true, true, 5);
-		var_theta_e.putAtt("long_name", "emission zenith angle");
-		var_theta_e.putAtt("units", "radian");
-		var_theta_e.putVar(result.theta_e.data());
-		netCDF::NcVar var_theta_i = outputFile.addVar("theta_i", netCDF::ncDouble, dim_theta_i);
-		var_theta_i.setCompression(true, true, 5);
-		var_theta_i.putAtt("long_name", "incidence zenith angle");
-		var_theta_i.putAtt("units", "radian");
-		var_theta_i.putVar(result.theta_i.data());
-		netCDF::NcVar var_phi = outputFile.addVar("delta_phi", netCDF::ncDouble, dim_phi);
-		var_phi.setCompression(true, true, 5);
-		var_phi.putAtt("long_name", "azimuthal difference");
-		var_phi.putAtt("units", "radian");
-		var_phi.putVar(phi.data());
-		netCDF::NcVar var_M = outputFile.addVar("M", netCDF::ncInt, dim_M);
-		var_M.setCompression(true, true, 5);
-		var_M.putAtt("long_name", "Fourier modes");
-		var_M.putAtt("units", "dimensionless");
-		var_M.putVar(_M.data());
-		netCDF::NcVar var_wavelength = outputFile.addVar("wavelength", netCDF::ncDouble, dim_wavelength);
-		var_wavelength.setCompression(true, true, 5);
-		var_wavelength.putAtt("long_name", "wavelength");
-		var_wavelength.putAtt("units", "m");
-		var_wavelength.putVar(result.wavelength.data());
-
-		std::vector<double> reflectance_flat(Nlambda * Ntheta * Ntheta * Nphi);
-
-		for(int l = 0; l < Nlambda; l ++)
+		std::vector<double> source_up;
+		for(int l = 0; l < Nspectral; l ++)
 		{
 			for(int e = 0; e < Ntheta; e ++)
 			{
-				for(int i = 0; i < Ntheta; i ++)
-				{
-					for(int p = 0; p < Nphi; p ++)
-					{
-						int idx = l * (Ntheta * Ntheta * Nphi) + e * (Ntheta * Nphi) + i * Nphi + p;
-
-						double r = result.reflectance_m_top_cos[l][0](e, i);
-
-						for(int m = 1; m <= geometry.M; m ++)
-						{
-							double rcos = result.reflectance_m_top_cos[l][m](e, i);
-							double rsin = result.reflectance_m_top_sin[l][m](e, i);
-
-							r += 2.0 * (rcos * std::cos(double(m) * phi[p]) + rsin * std::sin(double(m) * phi[p]));
-						}
-
-						reflectance_flat[idx] = r;
-					}
-				}
+				source_up.push_back(result_.spectral_data[l].source_up(e));
 			}
 		}
 
-		netCDF::NcVar var_reflectance = outputFile.addVar("reflectance", netCDF::ncDouble, {dim_wavelength, dim_theta_e, dim_theta_i, dim_phi});
-		var_reflectance.setCompression(true, true, 5);
-		var_reflectance.putAtt("long_name", "reflectance (wavelength, emission zenith angle, incidence zenith angle, azimuthal difference)");
-		var_reflectance.putAtt("units", "dimensionless");
-		var_reflectance.putVar(reflectance_flat.data());
-
-		std::vector<double> reflectance_am(Nlambda * (Nmode + 1) * Ntheta * Ntheta);
-		std::vector<double> reflectance_bm(Nlambda * (Nmode + 1) * Ntheta * Ntheta);
-
-		for(int l = 0; l < Nlambda; l ++)
-		{
-			for(int m = 0; m < Nmode + 1; m ++)
-			{
-				for(int e = 0; e < Ntheta; e ++)
-				{
-					for(int i = 0; i < Ntheta; i ++)
-					{
-						int idx = l * ((Nmode + 1) * Ntheta * Ntheta) + m * (Ntheta * Ntheta) + e * Ntheta + i;
-
-						reflectance_am[idx] = result.reflectance_m_top_cos[l][m](e, i);
-						reflectance_bm[idx] = result.reflectance_m_top_sin[l][m](e, i);
-					}
-				}
-			}
-		}
-
-		netCDF::NcVar var_reflectance_am = outputFile.addVar("reflectance_am", netCDF::ncDouble, {dim_wavelength, dim_M, dim_theta_e, dim_theta_i});
-		var_reflectance_am.setCompression(true, true, 5);
-		var_reflectance_am.putAtt("long_name", "Fourier cosine coefficients a_m for azimuthal expansion of reflectance.");
-		var_reflectance_am.putAtt("units", "dimensionless");
-		var_reflectance_am.putVar(reflectance_am.data());
-
-		netCDF::NcVar var_reflectance_bm = outputFile.addVar("reflectance_bm", netCDF::ncDouble, {dim_wavelength, dim_M, dim_theta_e, dim_theta_i});
-		var_reflectance_bm.setCompression(true, true, 5);
-		var_reflectance_bm.putAtt("long_name", "Fourier sine coefficients b_m for azimuthal expansion of reflectance.");
-		var_reflectance_bm.putAtt("units", "dimensionless");
-		var_reflectance_bm.putVar(reflectance_bm.data());
-
-		std::vector<double> tau, ka, ks, omega, g;
-		for(int l = 0; l < Nlambda; l ++)
-		{
-			for(int i = 0; i < Nlayer; i ++)
-			{
-				tau.push_back(result.optical_thickness[l][i]);
-				ka.push_back(result.absorption_coefficient[l][i]);
-				ks.push_back(result.scattering_coefficient[l][i]);
-				omega.push_back(result.single_scattering_albedo[l][i]);
-				g.push_back(result.asymmetry_parameter[l][i]);
-			}
-		}
-
-		// std::cout << "thru" << std::endl;
-
-		netCDF::NcVar var_z = outputFile.addVar("altitude", netCDF::ncDouble, dim_layer);
-		var_z.putAtt("long_name", "altitude of center of layer");
-		var_z.putAtt("units", "m");
-		var_z.putVar(result.altitude.data());
-		netCDF::NcVar var_z_top = outputFile.addVar("altitude_top", netCDF::ncDouble, dim_layer);
-		var_z_top.putAtt("long_name", "altitude of top of layer");
-		var_z_top.putAtt("units", "m");
-		var_z_top.putVar(result.altitude_top.data());
-		netCDF::NcVar var_z_bottom = outputFile.addVar("altitude_bottom", netCDF::ncDouble, dim_layer);
-		var_z_bottom.putAtt("long_name", "altitude of bottom of layer");
-		var_z_bottom.putAtt("units", "m");
-		var_z_bottom.putVar(result.altitude_bottom.data());
-		netCDF::NcVar var_physical_thickness = outputFile.addVar("physical_thickness", netCDF::ncDouble, dim_layer);
-		var_physical_thickness.putAtt("long_name", "physical thickness of layer");
-		var_physical_thickness.putAtt("units", "m");
-		var_physical_thickness.putVar(result.physical_thickness.data());
-		netCDF::NcVar var_T = outputFile.addVar("temperature", netCDF::ncDouble, dim_layer);
-		var_T.putAtt("long_name", "temperature");
-		var_T.putAtt("units", "K");
-		var_T.putVar(result.temperature.data());
-		netCDF::NcVar var_P = outputFile.addVar("pressure", netCDF::ncDouble, dim_layer);
-		var_P.putAtt("long_name", "pressure");
-		var_P.putAtt("units", "Pa");
-		var_P.putVar(result.pressure.data());
-		netCDF::NcVar var_ND = outputFile.addVar("number_density", netCDF::ncDouble, dim_layer);
-		var_ND.putAtt("long_name", "number density");
-		var_ND.putAtt("units", "molecule/m^3");
-		var_ND.putVar(result.number_density.data());
-
-		if(configuration.enable_atmospheric_emission == true)
-		{
-			netCDF::NcVar var_emission = outputFile.addVar("thermal_emission", netCDF::ncDouble, {dim_wavelength, dim_theta_e});
-			var_emission.setCompression(true, true, 5);
-			var_emission.putAtt("long_name", "atmospheric emission (wavelength, emission direction)");
-			var_emission.putAtt("units", "W/m2/sr/m");
-
-			std::vector<double> source_up;
-			for(int l = 0; l < Nlambda; l ++)
-			{
-				for(int e = 0; e < Ntheta; e ++)
-				{
-					source_up.push_back(result.source_up[l](e));
-				}
-			}
-
-			var_emission.putVar(source_up.data());
-		}
-
-		netCDF::NcVar var_ka = outputFile.addVar("absorption_coefficient", netCDF::ncDouble, {dim_wavelength, dim_layer});
-		var_ka.putAtt("long_name", "absorption coefficient ka");
-		var_ka.putAtt("units", "1/m");
-		var_ka.putVar(ka.data());
-		netCDF::NcVar var_ks = outputFile.addVar("scattering_coefficient", netCDF::ncDouble, {dim_wavelength, dim_layer});
-		var_ks.putAtt("long_name", "scattering coefficient ks");
-		var_ks.putAtt("units", "1/m");
-		var_ks.putVar(ks.data());
-		netCDF::NcVar var_tau = outputFile.addVar("optical_thickness", netCDF::ncDouble, {dim_wavelength, dim_layer});
-		var_tau.putAtt("long_name", "optical thickness: dz * (ks + ka)");
-		var_tau.putAtt("units", "dimensionless");
-		var_tau.putVar(tau.data());
-		netCDF::NcVar var_omega = outputFile.addVar("single_scattering_albedo", netCDF::ncDouble, {dim_wavelength, dim_layer});
-		var_omega.putAtt("long_name", "single scattering albedo: ks/(ks + ka)");
-		var_omega.putAtt("units", "dimensionless");
-		var_omega.putVar(omega.data());
-		netCDF::NcVar var_g = outputFile.addVar("asymmetry_parameter", netCDF::ncDouble, {dim_wavelength, dim_layer});
-		var_g.putAtt("long_name", "asymmetry parameter");
-		var_g.putAtt("units", "dimensionless");
-		var_g.putVar(g.data());
-		
-		int n_species = configuration.species.size();
-		netCDF::NcVar var_n_species = outputFile.addVar("n_species", netCDF::ncInt);
-		var_n_species.putAtt("long_name", "number of species");
-		var_n_species.putVar(&n_species);
-
-
-		//group for species
-		for(int i = 0; i < configuration.species.size(); i ++)
-		{
-			netCDF::NcGroup group = outputFile.addGroup("species_" + std::to_string(i + 1));
-
-			group.putAtt("name", configuration.species[i].name);		
-
-			netCDF::NcVar var_mixing_ratio = group.addVar("mixing_ratio", netCDF::ncDouble, dim_layer);
-			var_mixing_ratio.putAtt("long_name", "mixing ratio");
-			var_mixing_ratio.putAtt("units", "dimensionless");
-			std::vector<double> mixing_ratio;
-			for(int nz = 0; nz < Nlayer; nz ++)
-			{
-				if(configuration.species[i].vertical_profile_type == VerticalProfileType::MixingRatio)
-				{
-					mixing_ratio.push_back(configuration.species[i].computeMixingRatio(result.altitude[nz]));
-				}
-				else if(configuration.species[i].vertical_profile_type == VerticalProfileType::NumberDensity)
-				{
-					mixing_ratio.push_back(configuration.species[i].computeNumberDensity(result.altitude[nz]) / result.number_density[nz]);
-				}
-			}
-			var_mixing_ratio.putVar(mixing_ratio.data());
-
-			netCDF::NcVar var_species_number_density = group.addVar("species_number_density", netCDF::ncDouble, dim_layer);
-			var_species_number_density.putAtt("long_name", "number density");
-			var_species_number_density.putAtt("units", "molecule/m^3");
-			std::vector<double> nd;
-			for(int nz = 0; nz < Nlayer; nz ++)
-			{
-				if(configuration.species[i].vertical_profile_type == VerticalProfileType::MixingRatio)
-				{
-					nd.push_back(configuration.species[i].computeMixingRatio(result.altitude[nz]) * result.number_density[nz]);
-				}
-				else if(configuration.species[i].vertical_profile_type == VerticalProfileType::NumberDensity)
-				{
-					nd.push_back(configuration.species[i].computeNumberDensity(result.altitude[nz]));
-				}
-			}
-			var_species_number_density.putVar(nd.data());
-		}
+		var_emission.putVar(source_up.data());
 	}
+
+	netCDF::NcVar var_ka = outputFile.addVar("absorption_coefficient", netCDF::ncDouble, {dim_layer, dim_spectral});
+	var_ka.putAtt("long_name", "absorption coefficient ka (layer, spectral)");
+	var_ka.putAtt("units", "1/m");
+	var_ka.putVar(ka.data());
+	netCDF::NcVar var_ks = outputFile.addVar("scattering_coefficient", netCDF::ncDouble, {dim_layer, dim_spectral});
+	var_ks.putAtt("long_name", "scattering coefficient ks (layer, spectral)");
+	var_ks.putAtt("units", "1/m");
+	var_ks.putVar(ks.data());
+	netCDF::NcVar var_tau = outputFile.addVar("optical_thickness", netCDF::ncDouble, {dim_layer, dim_spectral});
+	var_tau.putAtt("long_name", "optical thickness: dz * (ks + ka) (layer, spectral)");
+	var_tau.putAtt("units", "dimensionless");
+	var_tau.putVar(tau.data());
+	netCDF::NcVar var_omega = outputFile.addVar("single_scattering_albedo", netCDF::ncDouble, {dim_layer, dim_spectral});
+	var_omega.putAtt("long_name", "single scattering albedo: ks/(ks + ka) (layer, spectral)");
+	var_omega.putAtt("units", "dimensionless");
+	var_omega.putVar(omega.data());
+	netCDF::NcVar var_g = outputFile.addVar("asymmetry_parameter", netCDF::ncDouble, {dim_layer, dim_spectral});
+	var_g.putAtt("long_name", "asymmetry parameter (layer, spectral)");
+	var_g.putAtt("units", "dimensionless");
+	var_g.putVar(g.data());
+	
+	int n_species = atmosphere_model_.species.size();
+	netCDF::NcVar var_n_species = outputFile.addVar("n_species", netCDF::ncInt);
+	var_n_species.putAtt("long_name", "number of species");
+	var_n_species.putVar(&n_species);
+
+
+	//group for species
+	for(int i = 0; i < atmosphere_model_.species.size(); i ++)
+	{
+		netCDF::NcGroup group = outputFile.addGroup("species_" + std::to_string(i + 1));
+
+		group.putAtt("name", atmosphere_model_.species[i].name);		
+
+		netCDF::NcVar var_mixing_ratio = group.addVar("mixing_ratio", netCDF::ncDouble, dim_layer);
+		var_mixing_ratio.putAtt("long_name", "mixing ratio (layer)");
+		var_mixing_ratio.putAtt("units", "dimensionless");
+		netCDF::NcVar var_species_number_density = group.addVar("number_density", netCDF::ncDouble, dim_layer);
+		var_species_number_density.putAtt("long_name", "number density (layer)");
+		var_species_number_density.putAtt("units", "molecule/m^3");
+
+		std::vector<double> mixing_ratio, nd;
+
+		for(int nz = 0; nz < Nlayer; nz ++)
+		{
+			mixing_ratio.push_back(atmosphere_model_.species[i].vertical_mixing_ratio_profile[nz]);
+			nd.push_back(atmosphere_model_.species[i].vertical_number_density_profile[nz]);
+		}
+		var_mixing_ratio.putVar(mixing_ratio.data());		
+		var_species_number_density.putVar(nd.data());
+	}
+
 	
 	return;
 }

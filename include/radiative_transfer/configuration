@@ -237,11 +237,11 @@ inline Configuration::SpectralCoordinate ConfigurationLoader::loadSpectralCoordi
 
 	spectral_coordinate.mono = getOptionalDouble_(kv, prefix + "value");
 
-	int n_lambda = countArrayEntries_(kv, prefix + "tics");
-	for(int i = 0; i < n_lambda; i ++)
-	{
-		spectral_coordinate.spectral_grid.push_back(getRequiredDouble_(kv, prefix + "tics." + std::to_string(i)));
-	}
+	// int n_lambda = countArrayEntries_(kv, prefix + "tics");
+	// for(int i = 0; i < n_lambda; i ++)
+	// {
+	// 	spectral_coordinate.spectral_grid.push_back(getRequiredDouble_(kv, prefix + "tics." + std::to_string(i)));
+	// }
 
 	spectral_coordinate.min = getOptionalDouble_(kv, prefix + "min");
 	spectral_coordinate.max = getOptionalDouble_(kv, prefix + "max");
@@ -466,18 +466,28 @@ inline Configuration::Atmosphere ConfigurationLoader::loadAtmosphere_(const std:
 			s.scatter_type = parseEnum_(getOptionalString_(kv, base + "scatter_type"), map_scatter_type);
 			s.scattering_cross_section_type = parseEnum_(getOptionalString_(kv, base + "scattering_cross_section.type"), map_cross_section_type);
 			s.absorption_cross_section_type = parseEnum_(getOptionalString_(kv, base + "absorption_cross_section.type"), map_cross_section_type);
+
+			// scattering_cross_section:
+			//   type: external
+			//   file:
+			//     filename: filename
+			//     varname: [wavenumber, scattering_cross_section]
 			
 			s.scattering_cross_section = getOptionalDouble_(kv, base + "scattering_cross_section.value");
 			s.scattering_cross_section_unit = getOptionalString_(kv, base + "scattering_cross_section.unit");
 			s.absorption_cross_section = getOptionalDouble_(kv, base + "absorption_cross_section.value");
 			s.absorption_cross_section_unit = getOptionalString_(kv, base + "absorption_cross_section.unit");
 
-			s.filename_scattering_cross_section = getOptionalString_(kv, base + "scattering_cross_section.file");
-			s.unit_input_scattering_spectral = getOptionalString_(kv, base + "scattering_cross_section.unit.0");
-			s.unit_input_scattering_cross_section = getOptionalString_(kv, base + "scattering_cross_section.unit.1");
+			s.filename_scattering_cross_section = getOptionalString_(kv, base + "scattering_cross_section.file.filename");
+			s.varname_scattering_cross_section_spectral = getOptionalString_(kv, base + "scattering_cross_section.file.varname.0");
+			s.varname_scattering_cross_section = getOptionalString_(kv, base + "scattering_cross_section.file.varname.1");
+			// s.unit_input_scattering_spectral = getOptionalString_(kv, base + "scattering_cross_section.unit.0");
+			// s.unit_input_scattering_cross_section = getOptionalString_(kv, base + "scattering_cross_section.unit.1");
 			s.filename_absorption_cross_section = getOptionalString_(kv, base + "absorption_cross_section.file");
-			s.unit_input_absorption_spectral = getOptionalString_(kv, base + "absorption_cross_section.unit.0");
-			s.unit_input_absorption_cross_section = getOptionalString_(kv, base + "absorption_cross_section.unit.1");
+			s.varname_absorption_cross_section_spectral = getOptionalString_(kv, base + "absorption_cross_section.file.varname.0");
+			s.varname_absorption_cross_section = getOptionalString_(kv, base + "absorption_cross_section.file.varname.1");
+			// s.unit_input_absorption_spectral = getOptionalString_(kv, base + "absorption_cross_section.unit.0");
+			// s.unit_input_absorption_cross_section = getOptionalString_(kv, base + "absorption_cross_section.unit.1");
 
 			s.g_factor = getOptionalDouble_(kv, base + "g_factor");
 
@@ -546,8 +556,9 @@ inline Configuration::Atmosphere ConfigurationLoader::loadAtmosphere_(const std:
 
 			// refractive_index:
 			//   type: spectral
-			//   unit: m-1
-			//   file: filename
+			//   file:
+			//     filename: filename
+			//     varname: [wavenumber, nr, ni]
 
 			// refractive_index:
 			//   type: vertical
@@ -561,8 +572,9 @@ inline Configuration::Atmosphere ConfigurationLoader::loadAtmosphere_(const std:
 			// refractive_index:
 			//   type: spectral_vertical
 			//   interpolation: linear
-			//   unit: [km, m-1]
-			//   file: filename
+			//   file:
+			//     filename: filename
+			//     varname: [altitude, wavenumber, nr, ni]
 
 			s.refractive_index_type = parseEnum_(getOptionalString_(kv, base + "refractive_index.type"), map_refractive_index_type);
 
@@ -571,8 +583,10 @@ inline Configuration::Atmosphere ConfigurationLoader::loadAtmosphere_(const std:
 			s.ni = getOptionalDouble_(kv, base + "refractive_index.value.1");
 
 			// spectral用
-			s.filename_refractive_index_spectral = getOptionalString_(kv, base + "refractive_index.file");
-			s.unit_input_refractive_index_spectral = getOptionalString_(kv, base + "refractive_index.unit");
+			s.filename_refractive_index_spectral = getOptionalString_(kv, base + "refractive_index.file.filename");
+			s.varname_refractive_index_spectral_spectral = getOptionalString_(kv, base + "refractive_index.file.varname.0");
+			s.varname_refractive_index_spectral_nr = getOptionalString_(kv, base + "refractive_index.file.varname.1");
+			s.varname_refractive_index_spectral_ni = getOptionalString_(kv, base + "refractive_index.file.varname.2");
 
 			// vertical用
 			s.refractive_index_vertical_profile_interpolation  = parseEnum_(getOptionalString_(kv, base + "refractive_index.interpolation"), map_vertical_profile_interpolation);
@@ -604,7 +618,10 @@ inline Configuration::Atmosphere ConfigurationLoader::loadAtmosphere_(const std:
 
 			// spectral_vertical用
 			s.filename_refractive_index_spectral_vertical = getOptionalString_(kv, base + "refractive_index.file");
-			s.unit_refractive_index_spectral_vertical = {getOptionalString_(kv, base + "refractive_index.unit.0"), getOptionalString_(kv, base + "refractive_index.unit.1")};
+			s.varname_refractive_index_spectral_vertical_altitude = getOptionalString_(kv, base + "refractive_index.file.varname.0");
+			s.varname_refractive_index_spectral_vertical_spectral = getOptionalString_(kv, base + "refractive_index.file.varname.1");
+			s.varname_refractive_index_spectral_vertical_nr = getOptionalString_(kv, base + "refractive_index.file.varname.2");
+			s.varname_refractive_index_spectral_vertical_ni = getOptionalString_(kv, base + "refractive_index.file.varname.3");
 
 			atmosphere.species_configuration.push_back(s);
 		}
@@ -618,22 +635,52 @@ inline Configuration::Instrument ConfigurationLoader::loadInstrument_(const std:
 {
 	Configuration::Instrument instrument;
 
-	std::string prefix = "simulation.instrument.";
+	// spectral_coordinate:
+    //   dimension: wavenumber
+    //   type: Spectrum
+    //   min: 7.67
+    //   max: 7.71
+    //   increment: 100
+    //   count: 1001
+    //   unit: cm-1
+	// bandpass_filter:
+	//   type: gauss, rectangle, external
+	//   file: filename
+	//   sigma:
+	//   width:
+	//   center:
+	//   cutoff_sigma:
+	//   n_sample:
+	//   file:
+	//     filename: 
+	//     varname: [wavenumber, transmittance]
+	// convolution_kernel:
+	//   type: gauss, rectangle
+	//   sigma: 0.1
+	//   width: 0.1
+	//   cutoff_sigma: 4.0
+	//   n_sample: 5
+	//   
 
-	instrument.instrument_function_type = parseEnum_(getOptionalString_(kv, prefix + "type"), map_instrument_function_type);
-	instrument.instrument_function_sigma = getOptionalDouble_(kv, prefix + "sigma");
-	instrument.instrument_function_center = getOptionalDouble_(kv, prefix + "center");
-	instrument.instrument_function_width = getOptionalDouble_(kv, prefix + "width");
-	instrument.instrument_sampling_count = getOptionalInt_(kv, prefix + "n_sample");
-	instrument.filename_instrument_function = getOptionalString_(kv, prefix + "file");
-	instrument.instrument_function_unit = getOptionalString_(kv, prefix + "unit");
+	std::string prefix = "simulation.bandpass_filter.";
 
-	int n_tics = countArrayEntries_(kv, prefix + "table");
+	instrument.convolution_kernel_type = parseEnum_(getOptionalString_(kv, prefix + "type"), map_instrument_function_type);
+	instrument.kernel_sigma = getOptionalDouble_(kv, prefix + "sigma");
+	instrument.kernel_width = getOptionalDouble_(kv, prefix + "width");
+	instrument.over_sampling_count = getOptionalInt_(kv, prefix + "n_sample");
+	instrument.kernel_cut_off_sigma = getOptionalDouble_(kv, prefix + "cutoff_sigma");
 
-	for(int i = 0; i < n_tics; i ++)
-	{
-		instrument.instrument_function.push_back({getRequiredDouble_(kv, prefix + "table." + std::to_string(i) + ".0"), getRequiredDouble_(kv, prefix + "table." + std::to_string(i) + ".1")});
-	}
+	prefix = "simulation.convolution_kernel";
+
+	instrument.filter_function_type = parseEnum_(getOptionalString_(kv, prefix + "type"), map_instrument_function_type);
+	instrument.filter_sigma = getOptionalDouble_(kv, prefix + "sigma");
+	instrument.filter_width = getOptionalDouble_(kv, prefix + "width");
+	instrument.filter_center = getOptionalDouble_(kv, prefix + "center");
+	instrument.sampling_count = getOptionalInt_(kv, prefix + "n_sample");
+	instrument.filter_cut_off_sigma = getOptionalDouble_(kv, prefix + "cutoff_sigma");
+	instrument.filename_filter_function = getOptionalString_(kv, prefix + "file.filename");
+	instrument.varname_spectral = getOptionalString_(kv, prefix + "file.varname.0");
+	instrument.varname_transmittance = getOptionalString_(kv, prefix + "file.varname.1");
 
 	return instrument;
 }
@@ -901,7 +948,6 @@ template<typename EnumT> inline std::optional<EnumT> ConfigurationLoader::parseE
 	throw std::runtime_error("Unknown TypeName: " + s.value());
 }
 
-// 要修正：netcdf対応
 inline void Configuration::validateConfiguration(void)
 {
 	// Simulation
@@ -1031,30 +1077,31 @@ inline void Configuration::validateConfiguration(void)
 	}
 	else if(spectral_coordinate.spectral_coordinate_type.value() == SpectralCoordinateType::Spectrum)
 	{
-		if((!spectral_coordinate.min.has_value() || !spectral_coordinate.max.has_value() || (!spectral_coordinate.n_spectral.has_value() && !spectral_coordinate.increment.has_value())))
+		if(!spectral_coordinate.min.has_value() || !spectral_coordinate.max.has_value())
 		{
+			throw std::runtime_error("[Configuration::validateConfiguration] Spectral range was not specified.");
+		}
+
+		if(spectral_coordinate.min.value() >= spectral_coordinate.max.value())
+		{
+			throw std::runtime_error("[Configuration::validateConfiguration] Spectral range error (min >= max).");
+		}
+		
+		if(!instrument.convolution_kernel_type.has_value() || instrument.convolution_kernel_type == InstrumentFunctionType::Delta)
+		{
+			instrument.convolution_kernel_type = InstrumentFunctionType::Delta;
+
 			if(!spectral_coordinate.n_spectral.has_value() && !spectral_coordinate.increment.has_value())
+			{
+				throw std::runtime_error("[Configuration::validateConfiguration] Spectral increment was not specified.");
+			}
+			else if(spectral_coordinate.n_spectral.has_value() && spectral_coordinate.increment.has_value())
 			{
 				throw std::runtime_error("[Configuration::validateConfiguration] Spectral increment was over specified.");
 			}
-			if(spectral_coordinate.spectral_grid.empty())
-			{
-				throw std::runtime_error("[Configuration::validateConfiguration] Spectral grid was not specified for spectrum calculation.");
-			}
-		}
-		else
-		{
-			if(!spectral_coordinate.spectral_grid.empty())
-			{
-				throw std::runtime_error("[Configuration::validateConfiguration] Spectral grid was overspecified.");
-			}
 			else
 			{
-				if(spectral_coordinate.min.value() >= spectral_coordinate.max.value())
-				{
-					throw std::runtime_error("[Configuration::validateConfiguration] Spectral range error (min >= max).");
-				}
-				else if(!spectral_coordinate.n_spectral.has_value())
+				if(!spectral_coordinate.n_spectral.has_value())
 				{
 					if(spectral_coordinate.max.value() - spectral_coordinate.min.value() < spectral_coordinate.increment.value())
 					{
@@ -1066,126 +1113,95 @@ inline void Configuration::validateConfiguration(void)
 					if(spectral_coordinate.n_spectral < 2)
 					{
 						spectral_coordinate.n_spectral = 2;
-						std::cout << "[Configuration::validateConfiguration] n_spectral was not specified. Automatically set to 2." << std::endl;
+						std::cout << "[Configuration::validateConfiguration] n_spectral is too few. Automatically set to 2 (min and max)." << std::endl;
 					}
 				}
 			}
 		}
+		else
+		{
+			if(!instrument.over_sampling_count.has_value())
+			{
+				instrument.over_sampling_count = 3;
+				std::cout << "[Configuration::validateConfiguration] over_sampling_count was not specified. Automatically set to " << instrument.over_sampling_count.value() << "." << std::endl;
+			}
+
+			if(instrument.convolution_kernel_type.value() == InstrumentFunctionType::Gauss)
+			{
+				if(!instrument.kernel_sigma.has_value())
+				{
+					throw std::runtime_error("[Configuration::validateConfiguration] Gaussian sigma was not specified for convolution kernel.");
+				}
+				if(instrument.kernel_width.has_value())
+				{
+					instrument.kernel_width.reset();
+					std::cout << "[Configuration::validateConfiguration] Rectangular width was ignored for gaussian spectrum convolution kernel." << std::endl;
+				}
+			}
+			else if(instrument.convolution_kernel_type.value() == InstrumentFunctionType::Rectangle)
+			{
+				if(!instrument.kernel_width.has_value())
+				{
+					throw std::runtime_error("[Configuration::validateConfiguration] Rectangular width was not specified for convolution kernel.");
+				}
+				if(instrument.kernel_sigma.has_value())
+				{
+					instrument.kernel_width.reset();
+					std::cout << "[Configuration::validateConfiguration] Gaussian sigma was ignored for rectangular spectrum convolution kernel." << std::endl;
+				}
+			}
+			else if(instrument.convolution_kernel_type.value() == InstrumentFunctionType::External)
+			{
+				throw std::runtime_error("[Configuration::validateConfiguration] External was not currently supported for spectrum convolution kernel.");
+			} 
+		}
 	}
 	else if(spectral_coordinate.spectral_coordinate_type.value() == SpectralCoordinateType::Bandpass)
 	{
-		if(!instrument.instrument_function_type.has_value())
+		if(!instrument.filter_function_type.has_value())
 		{
-			throw std::runtime_error("[Configuration::validateConfiguration] Instrument was not specified for bandpass calculation.");
+			throw std::runtime_error("[Configuration::validateConfiguration] Bandpass filter was not specified for bandpass calculation.");
 		}
 		else 
 		{
-			// if(!spectral_coordinate.min.has_value() || !spectral_coordinate.max.has_value())
-			// {
-			// 	throw std::runtime_error("[Configuration::validateConfiguration] Spectral range was not specified for bandpass calculation.");
-			// }
-			// if(spectral_coordinate.min.value() >= spectral_coordinate.max.value())
-			// {
-			// 	throw std::runtime_error("[Configuration::validateConfiguration] Spectral range error (min >= max).");
-			// }
-		}
-	}
-
-	// Instrument
-	if(instrument.instrument_function_type.has_value())
-	{		
-		if(!instrument.instrument_function_unit.has_value())
-		{
-			instrument.instrument_function_unit = spectral_coordinate.unit.value();
-			std::cout << "[Configuration::validateConfiguration] Instrument function unit was automatically set to " << spectral_coordinate.unit.value() << "." << std::endl;
-		}
-		if(!instrument.instrument_sampling_count.has_value())
-		{
-			instrument.instrument_sampling_count = 3;
-			std::cout << "[Configuration::validateConfiguration] Instrument sampling cout was automatically set to 3." << std::endl;
-		}
-		
-		if(spectral_coordinate.spectral_coordinate_type.value() == SpectralCoordinateType::Spectrum)
-		{
-			if(instrument.instrument_function_type.value() == InstrumentFunctionType::Gauss)
+			if(instrument.filter_function_type.value() == InstrumentFunctionType::Delta)
 			{
-				if(!instrument.instrument_function_sigma.has_value())
+				if(!instrument.filter_center.has_value())
 				{
-					throw std::runtime_error("[Configuration::validateConfiguration] Gaussian sigma was not specified for instrument function.");
-				}
-				if(instrument.instrument_function_width.has_value())
-				{
-					instrument.instrument_function_width.reset();
-					std::cout << "[Configuration::validateConfiguration] Rectangular width was ignored for gaussian spectrum instrument function." << std::endl;
-				}
-				if(instrument.instrument_function_center.has_value())
-				{
-					instrument.instrument_function_center.reset();
-					std::cout << "[Configuration::validateConfiguration] Gaussian center was ignored for spectrum instrument function." << std::endl;
+					throw std::runtime_error("[Configuration::validateConfiguration] Delta center was not specified for filter function.");
 				}
 			}
-			else if(instrument.instrument_function_type.value() == InstrumentFunctionType::Rectangle)
+			else if(instrument.filter_function_type.value() == InstrumentFunctionType::Gauss)
 			{
-				if(!instrument.instrument_function_width.has_value())
+				if(!instrument.filter_sigma.has_value())
 				{
-					throw std::runtime_error("[Configuration::validateConfiguration] Rectangular width was not specified for instrument function.");
+					throw std::runtime_error("[Configuration::validateConfiguration] Gaussian sigma was not specified for filter function.");
 				}
-				if(instrument.instrument_function_sigma.has_value())
+				if(!instrument.filter_center.has_value())
 				{
-					instrument.instrument_function_width.reset();
-					std::cout << "[Configuration::validateConfiguration] Gaussian sigma was ignored for rectangular spectrum instrument function." << std::endl;
-				}
-				if(instrument.instrument_function_center.has_value())
-				{
-					instrument.instrument_function_center.reset();
-					std::cout << "[Configuration::validateConfiguration] Rectangular center was ignored for spectrum instrument function." << std::endl;
+					throw std::runtime_error("[Configuration::validateConfiguration] Gaussian center was not specified for filter function.");
 				}
 			}
-			else if(instrument.instrument_function_type.value() == InstrumentFunctionType::Table)
+			else if(instrument.filter_function_type.value() == InstrumentFunctionType::Rectangle)
 			{
-				throw std::runtime_error("[Configuration::validateConfiguration] Table was not currently supported for spectrum instrument function.");
-			}
-			else if(instrument.instrument_function_type.value() == InstrumentFunctionType::External)
-			{
-				throw std::runtime_error("[Configuration::validateConfiguration] External was not currently supported for spectrum instrument function.");
-			}
-		}
-		else if(spectral_coordinate.spectral_coordinate_type.value() == SpectralCoordinateType::Bandpass)
-		{
-			if(instrument.instrument_function_type.value() == InstrumentFunctionType::Gauss)
-			{
-				if(!instrument.instrument_function_sigma.has_value())
+				if(!instrument.filter_width.has_value())
 				{
-					throw std::runtime_error("[Configuration::validateConfiguration] Gaussian sigma was not specified for instrument function.");
+					throw std::runtime_error("[Configuration::validateConfiguration] Rectangular width was not specified for filter function.");
 				}
-				if(!instrument.instrument_function_center.has_value())
+				if(!instrument.filter_center.has_value())
 				{
-					throw std::runtime_error("[Configuration::validateConfiguration] Gaussian center was not specified for instrument function.");
+					throw std::runtime_error("[Configuration::validateConfiguration] Rectangular center was not specified for filter function.");
 				}
 			}
-			else if(instrument.instrument_function_type.value() == InstrumentFunctionType::Rectangle)
+			else if(instrument.filter_function_type.value() == InstrumentFunctionType::External)
 			{
-				if(!instrument.instrument_function_width.has_value())
+				if(!instrument.filename_filter_function.has_value())
 				{
-					throw std::runtime_error("[Configuration::validateConfiguration] Rectangular width was not specified for instrument function.");
+					throw std::runtime_error("[Configuration::validateConfiguration] Filename of filter function was not specified.");
 				}
-				if(!instrument.instrument_function_center.has_value())
+				else if(!instrument.varname_spectral.has_value() || !instrument.varname_transmittance.has_value())
 				{
-					throw std::runtime_error("[Configuration::validateConfiguration] Rectangular center was not specified for instrument function.");
-				}
-			}
-			else if(instrument.instrument_function_type.value() == InstrumentFunctionType::Table)
-			{
-				if(instrument.instrument_function.empty())
-				{
-					throw std::runtime_error("[Configuration::validateConfiguration] Table of instrument function was not specified.");
-				}
-			}
-			else if(instrument.instrument_function_type.value() == InstrumentFunctionType::External)
-			{
-				if(!instrument.filename_instrument_function.has_value())
-				{
-					throw std::runtime_error("[Configuration::validateConfiguration] Filename of instrument function was not specified.");
+					throw std::runtime_error("[Configuration::validateConfiguration] Variable name of filter function file was not specified.");
 				}
 			}
 		}
@@ -1621,15 +1637,9 @@ inline void Configuration::validateConfiguration(void)
 					}
 					else if(atmosphere.species_configuration[i].scattering_cross_section_type == CrossSectionType::External)
 					{
-						if(!atmosphere.species_configuration[i].unit_input_scattering_spectral.has_value())
+						if(!atmosphere.species_configuration[i].varname_scattering_cross_section_spectral.has_value() || !atmosphere.species_configuration[i].varname_scattering_cross_section.has_value())
 						{
-							atmosphere.species_configuration[i].unit_input_scattering_spectral = spectral_coordinate.unit.value();
-							std::cout << "[Configuration::validateConfiguration] input_scattering_spectral unit for species " + std::to_string(i) + " was not specified. Automatically set to " << spectral_coordinate.unit.value() << "." << std::endl;
-						}
-						if(!atmosphere.species_configuration[i].unit_input_scattering_cross_section.has_value())
-						{
-							atmosphere.species_configuration[i].unit_input_scattering_cross_section = "m2";
-							std::cout << "[Configuration::validateConfiguration] input_scattering_cross_section unit for species " + std::to_string(i) + " was not specified. Automatically set to m2." << std::endl;
+							throw std::runtime_error("[Configuration::validateConfiguration] Variable name of scattering cross section file for species "+ std::to_string(i) + " was not specified.");
 						}
 						if(!atmosphere.species_configuration[i].filename_scattering_cross_section.has_value())
 						{
@@ -1667,16 +1677,14 @@ inline void Configuration::validateConfiguration(void)
 				}
 				else if(atmosphere.species_configuration[i].absorption_cross_section_type == CrossSectionType::External)
 				{
-					if(!atmosphere.species_configuration[i].unit_input_absorption_spectral.has_value())
-					{
-						atmosphere.species_configuration[i].unit_input_absorption_spectral = spectral_coordinate.unit.value();
-						std::cout << "[Configuration::validateConfiguration] input_absorption_spectral unit for species " + std::to_string(i) + " was not specified. Automatically set to " << spectral_coordinate.unit.value() << "." << std::endl;
-					}
-					if(!atmosphere.species_configuration[i].unit_input_absorption_cross_section.has_value())
-					{
-						atmosphere.species_configuration[i].unit_input_absorption_cross_section = "m2";
-						std::cout << "[Configuration::validateConfiguration] input_absorption_cross_section unit for species " + std::to_string(i) + " was not specified. Automatically set to m2." << std::endl;
-					}
+					if(!atmosphere.species_configuration[i].varname_absorption_cross_section_spectral.has_value() || !atmosphere.species_configuration[i].varname_absorption_cross_section.has_value())
+						{
+							throw std::runtime_error("[Configuration::validateConfiguration] Variable name of absorption cross section file for species "+ std::to_string(i) + " was not specified.");
+						}
+						if(!atmosphere.species_configuration[i].filename_absorption_cross_section.has_value())
+						{
+							throw std::runtime_error("[Configuration::validateConfiguration] filename_absorption_cross_section for species "+ std::to_string(i) + " was not specified.");
+						}
 					if(!atmosphere.species_configuration[i].filename_absorption_cross_section.has_value())
 					{
 						throw std::runtime_error("[Configuration::validateConfiguration] filename_absorption_cross_section for species "+ std::to_string(i) + " was not specified.");
@@ -2258,15 +2266,18 @@ inline void Configuration::validateConfiguration(void)
 				else if(atmosphere.species_configuration[i].refractive_index_type.value() == RefractiveIndexType::Spectral)
 				{
 					atmosphere.species_configuration[i].filename_refractive_index_spectral_vertical.reset();
+					atmosphere.species_configuration[i].varname_refractive_index_spectral_vertical_altitude.reset();
+					atmosphere.species_configuration[i].varname_refractive_index_spectral_vertical_spectral.reset();
+					atmosphere.species_configuration[i].varname_refractive_index_spectral_vertical_nr.reset();
+					atmosphere.species_configuration[i].varname_refractive_index_spectral_vertical_ni.reset();
 
 					if(!atmosphere.species_configuration[i].filename_refractive_index_spectral.has_value())
 					{
 						throw std::runtime_error("[Configuration::validateConfiguration] filename_refractive_index_spectral value for species "+ std::to_string(i) + " was not specified.");
 					}
-					if(!atmosphere.species_configuration[i].unit_input_refractive_index_spectral.has_value())
+					if(!atmosphere.species_configuration[i].varname_refractive_index_spectral_spectral.has_value() || !atmosphere.species_configuration[i].varname_refractive_index_spectral_nr.has_value() || !atmosphere.species_configuration[i].varname_refractive_index_spectral_ni.has_value())
 					{
-						atmosphere.species_configuration[i].unit_input_refractive_index_spectral = spectral_coordinate.unit.value();
-						std::cout << "[Configuration::validateConfiguration] unit_input_refractive_index_spectral for species " << i << " was not specified. Automatically set to " << spectral_coordinate.unit.value() << "." << std::endl;
+						throw std::runtime_error("[Configuration::validateConfiguration] Variable name of refractive index spectral file for species "+ std::to_string(i) + " was not specified.");
 					}
 				}
 				else if(atmosphere.species_configuration[i].refractive_index_type.value() == RefractiveIndexType::Vertical)
@@ -2311,21 +2322,13 @@ inline void Configuration::validateConfiguration(void)
 				else if(atmosphere.species_configuration[i].refractive_index_type.value() == RefractiveIndexType::SpectralVertical)
 				{
 					atmosphere.species_configuration[i].filename_refractive_index_spectral.reset();
+					atmosphere.species_configuration[i].varname_refractive_index_spectral_spectral.reset();
+					atmosphere.species_configuration[i].varname_refractive_index_spectral_nr.reset();
+					atmosphere.species_configuration[i].varname_refractive_index_spectral_ni.reset();
 
-					if(!atmosphere.species_configuration[i].unit_refractive_index_spectral_vertical[0].has_value() && !atmosphere.species_configuration[i].unit_refractive_index_spectral_vertical[1].has_value())
+					if(!atmosphere.species_configuration[i].varname_refractive_index_spectral_vertical_altitude.has_value() || !atmosphere.species_configuration[i].varname_refractive_index_spectral_vertical_spectral.has_value() || !atmosphere.species_configuration[i].varname_refractive_index_spectral_vertical_nr.has_value() || !atmosphere.species_configuration[i].varname_refractive_index_spectral_vertical_ni.has_value())
 					{
-						atmosphere.species_configuration[i].unit_refractive_index_spectral_vertical = {atmosphere.z_unit.value(), spectral_coordinate.unit.value()};
-						std::cout << "[Configuration::validateConfiguration] Unit of refractive index input file for species " + std::to_string(i) + " was not specified. Automatically set to (" << atmosphere.z_unit.value() <<", " << spectral_coordinate.unit.value() << ")." << std::endl;
-					}
-					else if(!atmosphere.species_configuration[i].unit_refractive_index_spectral_vertical[0].has_value())
-					{
-						atmosphere.species_configuration[i].unit_refractive_index_spectral_vertical[0] = atmosphere.z_unit.value();
-						std::cout << "[Configuration::validateConfiguration] Vertical unit of refractive index input file for species " + std::to_string(i) + " was not specified. Automatically set to " << atmosphere.z_unit.value() <<"." << std::endl;
-					}
-					else if(!atmosphere.species_configuration[i].unit_refractive_index_spectral_vertical[1].has_value())
-					{
-						atmosphere.species_configuration[i].unit_refractive_index_spectral_vertical[1] = spectral_coordinate.unit.value();
-						std::cout << "[Configuration::validateConfiguration] Spectral unit of refractive index input file for species " + std::to_string(i) + " was not specified. Automatically set to " << spectral_coordinate.unit.value() <<"." << std::endl;
+						throw std::runtime_error("[Configuration::validateConfiguration] Variable name of refractive index spectral-vertical file for species "+ std::to_string(i) + " was not specified.");
 					}
 					
 					if(!atmosphere.species_configuration[i].filename_refractive_index_spectral_vertical.has_value())

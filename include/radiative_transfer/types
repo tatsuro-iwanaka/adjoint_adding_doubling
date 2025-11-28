@@ -588,7 +588,7 @@ class Configuration
 			std::optional<double> max; // m or m-1, for spectrum
 			std::optional<int> n_spectral; // (11)
 			std::optional<double> increment; // m or m-1
-			std::vector<double> spectral_grid;
+			// std::vector<double> spectral_grid;
 		};
 
 		struct Instrument
@@ -609,6 +609,8 @@ class Configuration
 			std::optional<double> filter_cut_off_sigma; // for gaussian
 			std::optional<int> sampling_count;
 			std::optional<std::string> filename_filter_function;
+			std::optional<std::string> varname_spectral;
+			std::optional<std::string> varname_transmittance;
 
 			// std::optional<InstrumentFunctionType> instrument_function_type;
 			// std::optional<double> instrument_function_sigma; // sigma
@@ -651,19 +653,21 @@ class Configuration
 
 			// absorption cross section
 			std::optional<std::string> filename_absorption_cross_section;
-			std::optional<std::string> unit_input_absorption_cross_section;
-			std::optional<std::string> unit_input_absorption_spectral;
+			std::optional<std::string> varname_absorption_cross_section_spectral;
+			std::optional<std::string> varname_absorption_cross_section;
+			// std::optional<std::string> unit_input_absorption_cross_section;
+			// std::optional<std::string> unit_input_absorption_spectral;
 			std::optional<double> absorption_cross_section;	//m^2/molecule
 			std::optional<std::string> absorption_cross_section_unit;
 
-
 			// scattering cross section
 			std::optional<std::string> filename_scattering_cross_section;
-			std::optional<std::string> unit_input_scattering_cross_section;
-			std::optional<std::string> unit_input_scattering_spectral;
+			std::optional<std::string> varname_scattering_cross_section_spectral;
+			std::optional<std::string> varname_scattering_cross_section;
+			// std::optional<std::string> unit_input_scattering_cross_section;
+			// std::optional<std::string> unit_input_scattering_spectral;
 			std::optional<double> scattering_cross_section;	//m^2/molecule
 			std::optional<std::string> scattering_cross_section_unit;
-			
 
 
 			// refractive index for mie scattering
@@ -673,8 +677,11 @@ class Configuration
 			std::optional<double> ni;	//imaginary part of refractive index n = nr - i * ni
 
 			// spectral用
-			std::optional<std::string> unit_input_refractive_index_spectral;
+			// std::optional<std::string> unit_input_refractive_index_spectral;
 			std::optional<std::string> filename_refractive_index_spectral;
+			std::optional<std::string> varname_refractive_index_spectral_spectral;
+			std::optional<std::string> varname_refractive_index_spectral_nr;
+			std::optional<std::string> varname_refractive_index_spectral_ni;
 
 			// vertical用
 			bool is_refractive_index_same_layering_atmosphere = false;
@@ -685,8 +692,11 @@ class Configuration
 
 			// spectral_vertical用
 			std::optional<std::string> filename_refractive_index_spectral_vertical;
-			std::vector<std::optional<std::string>> unit_refractive_index_spectral_vertical; // altitude, spectral
-
+			std::optional<std::string> varname_refractive_index_spectral_vertical_altitude;
+			std::optional<std::string> varname_refractive_index_spectral_vertical_spectral;
+			std::optional<std::string> varname_refractive_index_spectral_vertical_nr;
+			std::optional<std::string> varname_refractive_index_spectral_vertical_ni;
+			// std::vector<std::optional<std::string>> unit_refractive_index_spectral_vertical; // altitude, spectral
 
 
 			// 粒径分布関数 (Mie)
@@ -722,8 +732,6 @@ class Configuration
 
 			// for HG
 			std::optional<double> g_factor;	//g-factor for Henyey-Greenstein function
-
-
 
 			// for hitran
 			std::optional<int> molecule_id;
@@ -823,7 +831,7 @@ class ConfigurationLoader
 		template<typename EnumT> static std::optional<EnumT> parseEnum_(const std::optional<std::string>&, const std::map<std::string, EnumT>&);
 };
 
-class MonochromeData
+struct MonochromeData
 {
 	public:
 		// std::vector<std::vector<std::vector<double>>> reflectance_top; // e, i, p?
@@ -840,7 +848,7 @@ class MonochromeData
 		std::vector<double> asymmetry_parameter; // altitude
 };
 
-class RadiativeTransferResult
+struct RadiativeTransferResult
 {
 	public:
 		int Ntheta;
@@ -859,8 +867,6 @@ class RadiativeTransferResult
 		std::vector<double> number_density; // altitude
 
 		std::vector<MonochromeData> spectral_data;
-
-		void exportResultNetCDF(std::string);
 };
 
 class RadiativeTransferSolver
@@ -924,18 +930,23 @@ class ModelBuilder
 		static double interpolateVerticalProfile(double, const std::vector<std::vector<double>>&, VerticalProfileInterpolation);
 };
 
-class SpectralCalculator
+class RadiativeTransfer
 {
 	private:
 		Configuration configuration_;
 		AtmosphereModel atmosphere_model_;
-		RadiativeTransferSolver radiative_transfer_;
+		RadiativeTransferSolver radiative_transfer_solver_;
+		SpectralInformation spectral_;
+		Geometry geometry_;
+		RadiativeTransferResult result_;
 
 		RadiativeTransferResult convolve_(const RadiativeTransferResult& radiative_transfer_result);
 		
 	public:
-		SpectralCalculator(const Configuration&, const AtmosphereModel&, const RadiativeTransferSolver&);
-		RadiativeTransferResult calculate(void);
+		RadiativeTransfer(const std::string&);
+		void run(void);
+		void exportResultNetCDF(void);
+		RadiativeTransferResult result(void);
 };
 
 /*
