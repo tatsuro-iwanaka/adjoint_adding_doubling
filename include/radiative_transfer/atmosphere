@@ -1498,7 +1498,7 @@ inline SpectralInformation ModelBuilder::buildSpectral(const Configuration& conf
 			if(spectral.spectral_dimension == SpectralCoordinateDimension::Wavelength)
 			{
 				auto loaded_data = loadSpectralFile(configuration.instrument.filename_filter_function.value(), configuration.instrument.varname_spectral.value(), configuration.instrument.varname_transmittance.value(), "m", "dimensionless");
-				auto grid = generateSpectralGridBandpass(configuration.instrument.sampling_count.value(), loaded_data);
+				auto grid = generateSpectralGridBandpass(configuration.instrument.sampling_count.value(), loaded_data, configuration.instrument.filter_cut_off.value());
 				spectral.spectral_grid = grid[0];
 				spectral.filter_function = grid[1];
 				spectral.filter_weight = grid[2];
@@ -1506,7 +1506,7 @@ inline SpectralInformation ModelBuilder::buildSpectral(const Configuration& conf
 			else if(spectral.spectral_dimension == SpectralCoordinateDimension::Wavenumber)
 			{
 				auto loaded_data = loadSpectralFile(configuration.instrument.filename_filter_function.value(), configuration.instrument.varname_spectral.value(), configuration.instrument.varname_transmittance.value(), "m-1", "dimensionless");
-				auto grid = generateSpectralGridBandpass(configuration.instrument.sampling_count.value(), loaded_data);
+				auto grid = generateSpectralGridBandpass(configuration.instrument.sampling_count.value(), loaded_data, configuration.instrument.filter_cut_off.value());
 				spectral.spectral_grid = grid[0];
 				spectral.filter_function = grid[1];
 				spectral.filter_weight = grid[2];
@@ -2125,7 +2125,7 @@ inline std::vector<std::vector<std::vector<double>>> loadRefractiveIndexSpectral
 	}
 }
 
-inline std::vector<std::vector<double>> generateSpectralGridBandpass(int n_sample, std::vector<std::vector<double>> filter_data, double cutoff_ratio = 1.0E-3)
+inline std::vector<std::vector<double>> generateSpectralGridBandpass(int n_sample, std::vector<std::vector<double>> filter_data, double cutoff_ratio)
 {
 	std::vector<double> spectral_grid;
 	std::vector<double> filter_function;
@@ -2649,7 +2649,7 @@ inline RadiativeLayer RadiativeTransferSolver::initializeSurfaceLayer_(const Opt
 		}
 	}
 
-	return;
+	return radiative_layer;
 }
 
 inline std::vector<OpticalLayer> RadiativeTransferSolver::setAtmosphericLayerCondition_(const AtmosphereModel& atmosphere_model, double spectral, SpectralCoordinateDimension dimension, int n_phase_function)

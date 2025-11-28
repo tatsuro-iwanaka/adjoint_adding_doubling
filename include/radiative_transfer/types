@@ -445,6 +445,7 @@ class Configuration
 			std::optional<double> filter_cut_off_sigma; // for gaussian
 			std::optional<int> sampling_count;
 			std::optional<std::string> filename_filter_function;
+			std::optional<double> filter_cut_off;
 			std::optional<std::string> varname_spectral;
 			std::optional<std::string> varname_transmittance;
 

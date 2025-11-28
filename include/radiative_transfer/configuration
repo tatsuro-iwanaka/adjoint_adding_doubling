@@ -653,6 +653,7 @@ inline Configuration::Instrument ConfigurationLoader::loadInstrument_(const std:
 	//   n_sample:
 	//   file:
 	//     filename: 
+	//     cutoff:
 	//     varname: [wavenumber, transmittance]
 	// convolution_kernel:
 	//   type: gauss, rectangle
@@ -681,6 +682,7 @@ inline Configuration::Instrument ConfigurationLoader::loadInstrument_(const std:
 	instrument.filename_filter_function = getOptionalString_(kv, prefix + "file.filename");
 	instrument.varname_spectral = getOptionalString_(kv, prefix + "file.varname.0");
 	instrument.varname_transmittance = getOptionalString_(kv, prefix + "file.varname.1");
+	instrument.filter_cut_off = getOptionalDouble_(kv, prefix + "file.cutoff");
 
 	return instrument;
 }
@@ -1137,6 +1139,11 @@ inline void Configuration::validateConfiguration(void)
 					instrument.kernel_width.reset();
 					std::cout << "[Configuration::validateConfiguration] Rectangular width was ignored for gaussian spectrum convolution kernel." << std::endl;
 				}
+				if(!instrument.kernel_cut_off_sigma.has_value())
+				{
+					instrument.kernel_cut_off_sigma = 3.0;
+					std::cout <<  "[Configuration::validateConfiguration] Cutoff sigma of Gaussian convolution kernel was not specified. Automatically set to " << instrument.kernel_cut_off_sigma.value() << "." << std::endl;
+				}
 			}
 			else if(instrument.convolution_kernel_type.value() == InstrumentFunctionType::Rectangle)
 			{
@@ -1181,6 +1188,11 @@ inline void Configuration::validateConfiguration(void)
 				{
 					throw std::runtime_error("[Configuration::validateConfiguration] Gaussian center was not specified for filter function.");
 				}
+				if(!instrument.filter_cut_off_sigma.has_value())
+				{
+					instrument.filter_cut_off_sigma = 3.0;
+					std::cout <<  "[Configuration::validateConfiguration] Cutoff sigma of Gaussian filter function was not specified. Automatically set to " << instrument.filter_cut_off_sigma.value() << "." << std::endl;
+				}
 			}
 			else if(instrument.filter_function_type.value() == InstrumentFunctionType::Rectangle)
 			{
@@ -1202,6 +1214,12 @@ inline void Configuration::validateConfiguration(void)
 				else if(!instrument.varname_spectral.has_value() || !instrument.varname_transmittance.has_value())
 				{
 					throw std::runtime_error("[Configuration::validateConfiguration] Variable name of filter function file was not specified.");
+				}
+
+				if(!instrument.filter_cut_off.has_value())
+				{
+					instrument.filter_cut_off = 0.001;
+					std::cout <<  "[Configuration::validateConfiguration] Cutoff threshold of filter function was not specified. Automatically set to " << instrument.filter_cut_off.value() << "." << std::endl;
 				}
 			}
 		}
