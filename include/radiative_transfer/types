@@ -631,7 +631,7 @@ struct SpectralInformation
 	public:
 		std::vector<double> spectral_grid; // m or m-1
 		SpectralCoordinateDimension spectral_dimension; // wavelength or wavenumber
-
+		SpectralCoordinateType spectral_coordinate_type;
 		std::vector<double> convolution_kernel; // size = over_sampling_count;
 		std::vector<double> filter_function; // size = spectral_grid.size()
 		std::vector<double> filter_weight;
@@ -775,6 +775,7 @@ class RadiativeTransfer
 		RadiativeTransferSolver radiative_transfer_solver_;
 		SpectralInformation spectral_;
 		Geometry geometry_;
+		DeltaApproximation delta_approximation_;
 		RadiativeTransferResult result_;
 
 		std::string config_filename_;

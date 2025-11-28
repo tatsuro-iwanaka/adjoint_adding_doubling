@@ -1370,12 +1370,18 @@ inline SpectralInformation ModelBuilder::buildSpectral(const Configuration& conf
 	//monochrome, spectrum, bandpass
 	if(configuration.spectral_coordinate.spectral_coordinate_type.value() == SpectralCoordinateType::Monochrome)
 	{
+		spectral.spectral_coordinate_type = SpectralCoordinateType::Monochrome;
+		
 		spectral.spectral_grid = {configuration.spectral_coordinate.mono.value() * getUnitInfo(configuration.spectral_coordinate.unit.value()).to_si};
 	}
 	else if(configuration.spectral_coordinate.spectral_coordinate_type.value() == SpectralCoordinateType::Spectrum)
 	{
+		spectral.spectral_coordinate_type = SpectralCoordinateType::Spectrum;
+
 		if(configuration.instrument.convolution_kernel_type.value() == InstrumentFunctionType::Delta)
 		{
+			spectral.convolution_kernel = {1.0};
+
 			if(configuration.spectral_coordinate.n_spectral.has_value())
 			{
 				double scale = getUnitInfo(configuration.spectral_coordinate.unit.value()).to_si;
@@ -1452,6 +1458,8 @@ inline SpectralInformation ModelBuilder::buildSpectral(const Configuration& conf
 	}
 	else if(configuration.spectral_coordinate.spectral_coordinate_type.value() == SpectralCoordinateType::Bandpass)
 	{
+		spectral.spectral_coordinate_type = SpectralCoordinateType::Bandpass;
+
 		if(configuration.instrument.filter_function_type.value() == InstrumentFunctionType::Delta)
 		{
 			double scale = getUnitInfo(configuration.spectral_coordinate.unit.value()).to_si;

@@ -306,12 +306,206 @@ inline RadiativeTransfer::RadiativeTransfer(const std::string& config_filename)
 inline void RadiativeTransfer::loadConfiguration(void)
 {
 	configuration_ = ConfigurationLoader::load(config_filename_);
+
 	spectral_ = ModelBuilder::buildSpectral(configuration_);
 	geometry_ = ModelBuilder::buildGeometry(configuration_);
 	atmosphere_model_ = ModelBuilder::buildAtmosphereModel(configuration_, spectral_);
+	delta_approximation_ = ModelBuilder::buildDeltaApproximation(configuration_);
 
+	result_.Ntheta = geometry_.Ntheta;
+	result_.Nphi = geometry_.Nphi;
+	result_.Nmode = geometry_.M;
+
+	for(int i = 0; i < geometry_.Ntheta; ++i)
+	{
+		result_.theta_e[i] = geometry_.theta_uh(i);
+		result_.theta_i[i] = PI - geometry_.theta_lh(i);
+	}
+
+	for(int i = 0; i < geometry_.Nphi; ++i)
+	{
+		result_.phi[i] = geometry_.phi(i);
+	}
+
+	result_.altitude = atmosphere_model_.altitude;
+	result_.altitude_top = atmosphere_model_.altitude_top;
+	result_.altitude_bottom = atmosphere_model_.altitude_bottom;
+	result_.physical_thickness.resize(result_.altitude.size());
+	result_.temperature = atmosphere_model_.temperature;
+	result_.pressure = atmosphere_model_.pressure;
+	result_.number_density = atmosphere_model_.number_density;
+
+	for(int i = 0; i < result_.altitude.size(); ++i)
+	{
+		result_.physical_thickness[i] = result_.altitude_top[i] - result_.altitude_bottom[i];
+	}
 
 	return;
+}
+
+inline void RadiativeTransfer::run(void)
+{
+	radiative_transfer_solver_.geometry(geometry_);
+	radiative_transfer_solver_.delta_approximation(delta_approximation_);
+	double initial_layer = configuration_.simulation.tau_initial_layer.value();
+	
+	int n_spectral = spectral_.spectral_grid.size();
+	result_.spectral_data.resize(n_spectral);
+
+	for(int i = 0; i < n_spectral; ++i)
+	{
+		double spectral = spectral_.spectral_grid[i];
+
+		result_.spectral_data[i] = radiative_transfer_solver_.computeMonochrome(atmosphere_model_, spectral, spectral_.spectral_dimension, initial_layer);
+	}
+
+	if(spectral_.spectral_coordinate_type == SpectralCoordinateType::Monochrome)
+	{
+		;
+	}
+	else if(spectral_.spectral_coordinate_type == SpectralCoordinateType::Spectrum)
+	{
+		// 1. サイズとインデックスの準備
+		size_t n_kernel = spectral_.convolution_kernel.size();
+		int n_pad = (n_kernel - 1) / 2;
+		
+		size_t n_total = result_.spectral_data.size();
+		size_t n_output = n_total - 2 * n_pad; // 出力されるべき有効点数
+
+		// 新しい結果格納用ベクタ (最初から必要なサイズだけ確保)
+		std::vector<MonochromeData> convolved_data;
+		convolved_data.reserve(n_output);
+
+		std::vector<double> new_grid;
+		new_grid.reserve(n_output);
+
+		// 2. 有効範囲のループ (i は 出力データのインデックス 0 ~ N-1)
+		for(size_t i = 0; i < n_output; ++i)
+		{
+			// 元データの対応する中心インデックス
+			size_t center_idx = i + n_pad;
+
+			// ベースとなるデータをコピー (高度プロファイルなどは中心波長のものを継承)
+			MonochromeData data = result_.spectral_data[center_idx];
+
+			// 3. 放射量をゼロ初期化 (積算のため)
+			data.source_up.setZero();
+
+			for(auto& mat : data.reflectance_m_top_cos)
+			{
+				mat.setZero();
+			}
+
+			for(auto& mat : data.reflectance_m_top_sin)
+			{
+				mat.setZero();
+			}
+
+			// 4. 畳み込み積算
+			for(size_t k = 0; k < n_kernel; ++k)
+			{
+				// カーネルに対応する元データのインデックス
+				// center_idx - n_pad + k  =>  i + k
+				size_t src_idx = i + k;
+				
+				double w = spectral_.convolution_kernel[k];
+				const auto& src_data = result_.spectral_data[src_idx];
+
+				// 積算 (Eigenの最適化が効く)
+				data.source_up += src_data.source_up * w;
+
+				for(int m = 0; m <= result_.Nmode; ++m)
+				{
+					data.reflectance_m_top_cos[m] += src_data.reflectance_m_top_cos[m] * w;
+					data.reflectance_m_top_sin[m] += src_data.reflectance_m_top_sin[m] * w;
+				}
+			}
+
+			// 計算済みデータを新しいリストに追加
+			convolved_data.push_back(std::move(data));
+			new_grid.push_back(spectral_.spectral_grid[center_idx]);
+		}
+
+		// 5. 結果の入れ替え (Move Semantics)
+		// 古い巨大データはここで破棄され、新しいデータに置き換わる
+		result_.spectral_data = std::move(convolved_data);
+		spectral_.spectral_grid = std::move(new_grid);
+	}
+	else if(spectral_.spectral_coordinate_type == SpectralCoordinateType::Bandpass)
+	{
+		int n_spectral = spectral_.spectral_grid.size();
+		int n_layer = atmosphere_model_.altitude.size();
+
+		double denom = 0.0;
+
+		for(int i = 0; i < n_spectral; ++i)
+		{
+			denom += spectral_.filter_weight[i];
+		}
+
+		double spectral = 0.0;
+
+		MonochromeData data;
+		data.source_up = Eigen::VectorXd::Zero(geometry_.Ntheta);
+		data.absorption_coefficient.resize(n_layer, 0.0);
+		data.scattering_coefficient.resize(n_layer, 0.0);
+		data.single_scattering_albedo.resize(n_layer, 0.0);
+		data.optical_thickness.resize(n_layer, 0.0);
+		data.asymmetry_parameter.resize(n_layer, 0.0);
+		data.reflectance_m_top_cos.resize(geometry_.M + 1, Eigen::MatrixXd::Zero(geometry_.Ntheta, geometry_.Ntheta));
+		data.reflectance_m_top_sin.resize(geometry_.M + 1, Eigen::MatrixXd::Zero(geometry_.Ntheta, geometry_.Ntheta));
+
+		for(int i = 0; i < n_spectral; ++i)
+		{
+			spectral += spectral_.spectral_grid[i] * spectral_.filter_weight[i];
+
+			data.source_up += result_.spectral_data[i].source_up * spectral_.filter_weight[i];
+			
+			for(int j = 0; j < n_layer; ++j)
+			{
+				data.absorption_coefficient[j] += result_.spectral_data[i].absorption_coefficient[j] * spectral_.filter_weight[i];
+				data.scattering_coefficient[j] += result_.spectral_data[i].scattering_coefficient[j] * spectral_.filter_weight[i];
+
+				data.asymmetry_parameter[j] += result_.spectral_data[i].asymmetry_parameter[j] * result_.spectral_data[i].scattering_coefficient[j] * spectral_.filter_weight[i];
+			}
+
+			for(int j = 0; j <= geometry_.M; ++j)
+			{
+				data.reflectance_m_top_cos[j] += result_.spectral_data[i].reflectance_m_top_cos[j] * spectral_.filter_weight[i];
+				data.reflectance_m_top_sin[j] += result_.spectral_data[i].reflectance_m_top_sin[j] * spectral_.filter_weight[i];
+			}
+		}
+
+		for(int i = 0; i < n_layer; ++i)
+		{
+			data.asymmetry_parameter[i] /= data.scattering_coefficient[i];
+
+			data.absorption_coefficient[i] /= denom;
+			data.scattering_coefficient[i] /= denom;
+
+			data.single_scattering_albedo[i] = data.scattering_coefficient[i] / (data.scattering_coefficient[i] + data.absorption_coefficient[i]);
+			data.optical_thickness[i] = (data.scattering_coefficient[i] + data.absorption_coefficient[i]) * (atmosphere_model_.altitude_top[i] - atmosphere_model_.altitude_bottom[i]);
+		}
+
+		data.source_up /= denom;
+		spectral /= denom;
+
+		for(int i = 0; i <= geometry_.M; ++i)
+		{
+			data.reflectance_m_top_cos[i] /= denom;
+			data.reflectance_m_top_sin[i] /= denom;
+		}
+
+		result_.spectral_data = {data};
+		spectral_.spectral_grid = {spectral};
+	}
+
+	return;
+}
+
+inline RadiativeTransferResult RadiativeTransfer::result(void)
+{
+	return result_;
 }
 
 }
