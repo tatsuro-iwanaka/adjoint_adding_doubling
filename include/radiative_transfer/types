@@ -329,6 +329,13 @@ struct OpticalLayer
 		double asymmetry_parameter;
 
 		std::vector<std::vector<double>> scattering_phase_function;	//angle (radian), magnitude (dimensionless)
+
+
+
+		std::vector<bool> is_scattering_species;
+		std::vector<std::vector<std::vector<double>>> species_scattering_phase_function; // species, scattering_angle
+		std::vector<double> species_absorption_cross_section; // species
+		std::vector<double> species_scattering_cross_section; // species
 };
 
 struct RadiativeLayer
@@ -740,6 +747,13 @@ struct MonochromeData
 		std::vector<double> single_scattering_albedo; // altitude
 		std::vector<double> optical_thickness; // altitude
 		std::vector<double> asymmetry_parameter; // altitude
+
+		std::vector<std::vector<std::vector<double>>> scattering_phase_function; // altitude, scattering_angle
+
+		std::vector<bool> is_scattering_species;
+		std::vector<std::vector<std::vector<std::vector<double>>>> species_scattering_phase_function; // altitude, species, scattering_angle
+		std::vector<std::vector<double>> species_absorption_cross_section; // altitude, species
+		std::vector<std::vector<double>> species_scattering_cross_section; // altitude, species
 };
 
 struct RadiativeTransferResult
@@ -762,7 +776,7 @@ struct RadiativeTransferResult
 
 		std::vector<MonochromeData> spectral_data;
 		std::vector<double> spectral_grid;
-		SpectralCoordinateDimension spectral_dimenstion;
+		SpectralCoordinateDimension spectral_dimension;
 };
 
 class RadiativeTransferSolver

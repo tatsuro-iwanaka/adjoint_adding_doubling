@@ -78,6 +78,12 @@ inline MonochromeData RadiativeTransferSolver::computeMonochrome(const Atmospher
 	// OpticalLayer surface_layer_opt;
 	
 	// std::vector<OpticalLayer> atmosphere_layer_opt(n_layer);
+	
+	#pragma omp critical
+	{
+		std::cout << "[RadiativeTransferSolver::computeMonochrome] Setting atmosphere condition for " << spectral << (dimension == SpectralCoordinateDimension::Wavenumber ? "m-1" : "m") << "." << std::endl;
+	
+	}
 	auto atmosphere_layer_opt = setAtmosphericLayerCondition_(atmosphere_model, spectral, dimension);
 	std::vector<RadiativeLayer> atmosphere_layer_rad(n_layer);
 	RadiativeLayer result_layer_rad;
@@ -89,6 +95,16 @@ inline MonochromeData RadiativeTransferSolver::computeMonochrome(const Atmospher
 	result.single_scattering_albedo.resize(n_layer);
 	result.asymmetry_parameter.resize(n_layer);
 
+	result.scattering_phase_function.resize(n_layer);
+	result.species_absorption_cross_section.resize(n_layer);
+	result.species_scattering_cross_section.resize(n_layer);
+	result.species_scattering_phase_function.resize(n_layer);
+	result.is_scattering_species = atmosphere_layer_opt[0].is_scattering_species;
+
+	#pragma omp critical
+	{
+		std::cout << "[RadiativeTransferSolver::computeMonochrome] Setting surface condition for " << spectral << (dimension == SpectralCoordinateDimension::Wavenumber ? "m-1" : "m") << "." << std::endl;
+	}
 	if(atmosphere_model.surface_type != SurfaceType::NoSurface)
 	{
 		auto surface_layer_opt = setSurfaceLayerCondition_(atmosphere_model, spectral, dimension);
@@ -111,14 +127,27 @@ inline MonochromeData RadiativeTransferSolver::computeMonochrome(const Atmospher
 		result.single_scattering_albedo[i] = atmosphere_layer_opt[i].single_scattering_albedo;
 		result.asymmetry_parameter[i] = atmosphere_layer_opt[i].asymmetry_parameter;
 
+		result.scattering_phase_function[i] = atmosphere_layer_opt[i].scattering_phase_function;
+		result.species_absorption_cross_section[i] = atmosphere_layer_opt[i].species_absorption_cross_section;
+		result.species_scattering_cross_section[i] = atmosphere_layer_opt[i].species_scattering_cross_section;
+		result.species_scattering_phase_function[i] = atmosphere_layer_opt[i].species_scattering_phase_function;
+
 		int n_doubling = atmosphere_layer_rad[i].n_doubling;
 
+		#pragma omp critical
+		{
+			std::cout << "[RadiativeTransferSolver::computeMonochrome] Doubling layer " << i << " for " << spectral << (dimension == SpectralCoordinateDimension::Wavenumber ? "m-1" : "m") << "." << std::endl;
+		}
 		for(int j = 0; j < n_doubling; ++j)
 		{
 			atmosphere_layer_rad[i] = doubleLayer(atmosphere_layer_rad[i], geometry_);
 			// doubling;
 		}
 
+		#pragma omp critical
+		{
+			std::cout << "[RadiativeTransferSolver::computeMonochrome] Adding layer " << i << " for " << spectral << (dimension == SpectralCoordinateDimension::Wavenumber ? "m-1" : "m") << "." << std::endl;
+		}
 		if(atmosphere_model.surface_type == SurfaceType::NoSurface && i == 0)
 		{
 			result_layer_rad = atmosphere_layer_rad[i];
@@ -391,6 +420,8 @@ inline void RadiativeTransfer::run(void)
 		result_.spectral_data[i] = radiative_transfer_solver_.computeMonochrome(atmosphere_model_, spectral, spectral_.spectral_dimension, initial_layer, simulation_.n_scattering_angle);
 	}
 
+	std::cout << "[RadiativeTransfer::run] Spectral calculation finished." << std::endl;
+
 	// std::cout << "thru" << std::endl;
 
 	if(spectral_.spectral_coordinate_type == SpectralCoordinateType::Monochrome)
@@ -465,7 +496,7 @@ inline void RadiativeTransfer::run(void)
 		// 古い巨大データはここで破棄され、新しいデータに置き換わる
 		result_.spectral_data = convolved_data;
 		result_.spectral_grid = new_grid;
-		result_.spectral_dimenstion = spectral_.spectral_dimension;
+		result_.spectral_dimension = spectral_.spectral_dimension;
 		spectral_.spectral_grid = new_grid;
 	}
 	else if(spectral_.spectral_coordinate_type == SpectralCoordinateType::Bandpass)
@@ -494,6 +525,28 @@ inline void RadiativeTransfer::run(void)
 		data.reflectance_m_top_cos.resize(geometry_.M + 1, Eigen::MatrixXd::Zero(geometry_.Ntheta, geometry_.Ntheta));
 		data.reflectance_m_top_sin.resize(geometry_.M + 1, Eigen::MatrixXd::Zero(geometry_.Ntheta, geometry_.Ntheta));
 
+		// newly added
+		data.scattering_phase_function = result_.spectral_data[0].scattering_phase_function;
+		data.is_scattering_species = result_.spectral_data[0].is_scattering_species;
+		data.species_scattering_phase_function = result_.spectral_data[0].species_scattering_phase_function;
+		for(int i = 0; i < data.species_scattering_phase_function.size(); ++i) // altitude
+		{
+			for(int j = 0; j < data.species_scattering_phase_function[i].size(); ++j) // speceis
+			{
+				for(int k = 0; k < data.species_scattering_phase_function[i][j].size(); ++k) // scattering angle
+				{
+					data.species_scattering_phase_function[i][j][k][1] = 0.0;
+				}
+			}
+
+			for(int j = 0; j < data.scattering_phase_function[i].size(); ++j) // scattering angle
+			{
+				data.scattering_phase_function[i][j][1] = 0.0;
+			}
+		}
+		data.species_absorption_cross_section.resize(n_layer, std::vector<double>(data.is_scattering_species.size(), 0.0));
+		data.species_scattering_cross_section.resize(n_layer, std::vector<double>(data.is_scattering_species.size(), 0.0));
+
 		for(int i = 0; i < n_spectral; ++i)
 		{
 			spectral += spectral_.spectral_grid[i] * spectral_.filter_weight[i];
@@ -504,6 +557,25 @@ inline void RadiativeTransfer::run(void)
 			{
 				data.absorption_coefficient[j] += result_.spectral_data[i].absorption_coefficient[j] * spectral_.filter_weight[i];
 				data.scattering_coefficient[j] += result_.spectral_data[i].scattering_coefficient[j] * spectral_.filter_weight[i];
+
+				for(int k = 0; k < data.is_scattering_species.size(); ++k)
+				{
+					data.species_absorption_cross_section[j][k] += result_.spectral_data[i].species_absorption_cross_section[j][k] * spectral_.filter_weight[i];
+					data.species_scattering_cross_section[j][k] += result_.spectral_data[i].species_scattering_cross_section[j][k] * spectral_.filter_weight[i];
+
+					if(data.is_scattering_species[k] == true)
+					{
+						for(int l = 0; l < data.species_scattering_phase_function[j][k].size(); ++l)
+						{
+							data.species_scattering_phase_function[j][k][l][1] += result_.spectral_data[i].species_scattering_phase_function[j][k][l][1] * result_.spectral_data[i].species_scattering_cross_section[j][k] * spectral_.filter_weight[i];
+						}
+					}
+				}
+
+				for(int k = 0; k < data.scattering_phase_function[j].size(); ++k)
+				{
+					data.scattering_phase_function[j][k][1] += result_.spectral_data[i].scattering_phase_function[j][k][1] * result_.spectral_data[i].scattering_coefficient[j] * spectral_.filter_weight[i];
+				}
 
 				data.asymmetry_parameter[j] += result_.spectral_data[i].asymmetry_parameter[j] * result_.spectral_data[i].scattering_coefficient[j] * spectral_.filter_weight[i];
 			}
@@ -522,6 +594,19 @@ inline void RadiativeTransfer::run(void)
 			data.absorption_coefficient[i] /= denom;
 			data.scattering_coefficient[i] /= denom;
 
+			for(int j = 0; j < data.is_scattering_species.size(); ++j)
+			{
+				data.species_absorption_cross_section[i][j] /= denom;
+				data.species_scattering_cross_section[i][j] /= denom;
+				
+				if(data.is_scattering_species[j] == true)
+				{
+					normalizeScatteringPhaseFunction(data.species_scattering_phase_function[i][j]);
+				}
+			}
+
+			normalizeScatteringPhaseFunction(data.scattering_phase_function[i]);
+
 			data.single_scattering_albedo[i] = data.scattering_coefficient[i] / (data.scattering_coefficient[i] + data.absorption_coefficient[i]);
 			data.optical_thickness[i] = (data.scattering_coefficient[i] + data.absorption_coefficient[i]) * (atmosphere_model_.altitude_top[i] - atmosphere_model_.altitude_bottom[i]);
 		}
@@ -537,7 +622,7 @@ inline void RadiativeTransfer::run(void)
 
 		result_.spectral_data = {data};
 		result_.spectral_grid = {spectral};
-		result_.spectral_dimenstion = spectral_.spectral_dimension;
+		result_.spectral_dimension = spectral_.spectral_dimension;
 		spectral_.spectral_grid = {spectral};
 	}
 

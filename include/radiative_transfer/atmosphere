@@ -807,6 +807,12 @@ inline std::vector<Species> ModelBuilder::buildSpecies_(const Configuration& con
 					s.particle_size_distribution = node_weight[0]; // 本当は不要
 					s.weight_particle_size_distribution = node_weight[1];
 				}
+
+				// std::cout << s_input.count_radius.value() << ", " << s.particle_size_distribution.size() << std::endl;
+				// for(int nt = 0; nt < s.particle_size_distribution.size(); ++nt)
+				// {
+				// 	std::cout << s.particle_size_distribution[nt][0] << ", " << s.particle_size_distribution[nt][1] << ", " << s.weight_particle_size_distribution[nt][1] << std::endl;
+				// }
 			}
 		}
 
@@ -2765,6 +2771,15 @@ inline std::vector<OpticalLayer> RadiativeTransferSolver::setAtmosphericLayerCon
 
 	for(int i = 0; i < n_layer; ++i)
 	{
+		#pragma omp critical
+		{
+			std::cout << "[RadiativeTransferSolver::setAtmosphericLayerCondition_] Setting atmosphere condition for layer " << i << "." << std::endl;
+		}
+		layers[i].is_scattering_species.resize(atmosphere_model.species.size(), false);
+		layers[i].species_absorption_cross_section.resize(atmosphere_model.species.size(), 0.0);
+		layers[i].species_scattering_cross_section.resize(atmosphere_model.species.size(), 0.0);
+		layers[i].species_scattering_phase_function.resize(atmosphere_model.species.size());
+
 		// std::cout << "layer " << i << std::endl;
 		layers[i].enable_atmospheric_emission = atmosphere_model.enable_atmospheric_emission;
 
@@ -2789,6 +2804,11 @@ inline std::vector<OpticalLayer> RadiativeTransferSolver::setAtmosphericLayerCon
 
 		for(int j = 0; j < atmosphere_model.species.size(); ++j)
 		{
+			#pragma omp critical
+			{
+				std::cout << "[RadiativeTransferSolver::setAtmosphericLayerCondition_] Setting atmosphere condition for species " << j << " in layer " << i << std::endl;
+			}
+			
 			double number_density = atmosphere_model.species[j].vertical_number_density_profile[i];
 			double mixing_ratio = atmosphere_model.species[j].vertical_mixing_ratio_profile[i];
 
@@ -2804,6 +2824,28 @@ inline std::vector<OpticalLayer> RadiativeTransferSolver::setAtmosphericLayerCon
 
 				computeMieScatteringSizeDistribution(n_scattering_angle_, wavelength, atmosphere_model.species[j].weight_particle_size_distribution, refractive_index, scattering_cross_section, absorption_cross_section, extinction_cross_section, pf);
 
+				// if(i == 0)
+				// {
+				// 	#pragma omp critical
+				// 	{
+				// 		std::cout << atmosphere_model.species[j].name << std::endl;
+				// 		std::cout << "Scattering cross section: " << scattering_cross_section * scaleUnit("m2", "micron2") << " micron2 " << std::endl;
+				// 		std::cout << "Absorption cross section: " << absorption_cross_section * scaleUnit("m2", "micron2") << " micron2 " << std::endl;
+
+				// 		std::cout << "Size distribution" << std::endl;
+				// 		for(int nr = 0; nr < atmosphere_model.species[j].particle_size_distribution.size(); ++nr)
+				// 		{
+				// 			std::cout << atmosphere_model.species[j].particle_size_distribution[nr][0] << ", " << atmosphere_model.species[j].particle_size_distribution[nr][1] << ", " << atmosphere_model.species[j].weight_particle_size_distribution[nr][1] << std::endl;
+				// 		}
+
+				// 		std::cout << "Phase function" << std::endl;
+				// 		for(int nt = 0; nt < n_scattering_angle_; ++nt)
+				// 		{
+				// 			std::cout << pf[nt][0] << ", " << pf[nt][1] / pf[0][1] << std::endl;
+				// 		}
+				// 	}
+				// }
+
 				double scattering_coefficient = scattering_cross_section * number_density;
 				double absorption_coefficient = absorption_cross_section * number_density;
 
@@ -2814,6 +2856,11 @@ inline std::vector<OpticalLayer> RadiativeTransferSolver::setAtmosphericLayerCon
 
 				layers[i].scattering_coefficient += scattering_coefficient;
 				layers[i].absorption_coefficient += absorption_coefficient;
+
+				layers[i].is_scattering_species[j] = true;
+				layers[i].species_scattering_cross_section[j] = scattering_cross_section;
+				layers[i].species_absorption_cross_section[j] = absorption_cross_section;
+				layers[i].species_scattering_phase_function[j] = pf;
 			}
 			else if(atmosphere_model.species[j].species_state == SpeciesState::Molecule)
 			{
@@ -2838,10 +2885,17 @@ inline std::vector<OpticalLayer> RadiativeTransferSolver::setAtmosphericLayerCon
 						pf = computeHGScatteringFunction(n_scattering_angle_, atmosphere_model.species[j].g_factor);
 					}
 
+					// layers[i].species_scattering_cross_section.push_back(scattering_cross_section);
+					// layers[i].species_scattering_phase_function.push_back(pf);
+
 					for(int k = 0; k < n_scattering_angle_; ++k)
 					{
 						layers[i].scattering_phase_function[k][1] += pf[k][1] * scattering_coefficient;
 					}
+
+					layers[i].is_scattering_species[j] = true;
+					layers[i].species_scattering_cross_section[j] = scattering_cross_section;
+					layers[i].species_scattering_phase_function[j] = pf;
 				}
 				
 				if(atmosphere_model.species[j].species_type == SpeciesType::Absorber || atmosphere_model.species[j].species_type == SpeciesType::Extinction)
@@ -2863,6 +2917,7 @@ inline std::vector<OpticalLayer> RadiativeTransferSolver::setAtmosphericLayerCon
 						double absorption_coefficient = absorption_cross_section * number_density; // m-1 = m2 / molecule * molecule / m3
 						layers[i].absorption_coefficient += absorption_coefficient;
 						// std::cout << "thru" << std::endl;
+						layers[i].species_absorption_cross_section[j] = absorption_cross_section;
 					}
 					else
 					{
@@ -2871,6 +2926,7 @@ inline std::vector<OpticalLayer> RadiativeTransferSolver::setAtmosphericLayerCon
 						// std::cout << absorption_cross_section << " m2" << std::endl;
 						double absorption_coefficient = absorption_cross_section * number_density; // m-1 = m2 / molecule * molecule / m3
 						layers[i].absorption_coefficient += absorption_coefficient;
+						layers[i].species_absorption_cross_section[j] = absorption_cross_section;
 					}
 				}
 			}
@@ -2880,6 +2936,19 @@ inline std::vector<OpticalLayer> RadiativeTransferSolver::setAtmosphericLayerCon
 		layers[i].single_scattering_albedo = layers[i].scattering_coefficient / (layers[i].scattering_coefficient + layers[i].absorption_coefficient);
 		normalizeScatteringPhaseFunction(layers[i].scattering_phase_function);
 		layers[i].asymmetry_parameter = computeAsymmetryParameter(layers[i].scattering_phase_function);
+
+		// #pragma omp critical
+		// {
+		// 	std::cout << "Layer " << i << std::endl;
+		// 	std::cout << "Single scattering albedo: " << layers[i].single_scattering_albedo << std::endl;
+		// 	std::cout << "Asymmetry parameter: " << layers[i].asymmetry_parameter << std::endl;
+
+		// 	std::cout << "Phase function" << std::endl;
+		// 	for(int nt = 0; nt < n_scattering_angle_; ++nt)
+		// 	{
+		// 		std::cout << layers[i].scattering_phase_function[nt][0] << ", " << layers[i].scattering_phase_function[nt][1] / layers[i].scattering_phase_function[0][1] << std::endl;
+		// 	}
+		// }
 	}
 
 	return layers;
