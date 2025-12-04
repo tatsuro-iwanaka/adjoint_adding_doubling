@@ -9,7 +9,7 @@
 
 #include "constants"
 #include "hitran"
-#include <logger>
+#include "logger"
 
 namespace radiative_transfer
 {
