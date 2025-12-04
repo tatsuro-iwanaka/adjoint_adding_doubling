@@ -1,0 +1,233 @@
+#pragma once
+
+#include<Eigen/Dense>
+#include<cmath>
+#include<algorithm>
+
+#include"types"
+#include"constants"
+#include"geometry"
+
+namespace radiative_transfer
+{
+
+inline RadiativeLayer doubleLayer_adjoint(const RadiativeLayer &layer, const Geometry &geometry, const RadiativeLayer &adj_result)
+{
+	RadiativeLayer adj_layer = layer;
+	adj_layer.optical_thickness = 0.0;
+	adj_layer.source_up.setZero();
+	adj_layer.source_down.setZero();
+	for(int m = 0; m <= geometry.M; m++)
+	{
+		adj_layer.reflectance_m_top_cos[m].setZero();
+		adj_layer.reflectance_m_top_sin[m].setZero();
+		adj_layer.reflectance_m_bottom_cos[m].setZero();
+		adj_layer.reflectance_m_bottom_sin[m].setZero();
+		adj_layer.transmittance_m_top_cos[m].setZero();
+		adj_layer.transmittance_m_top_sin[m].setZero();
+		adj_layer.transmittance_m_bottom_cos[m].setZero();
+		adj_layer.transmittance_m_bottom_sin[m].setZero();
+	}
+
+	Eigen::VectorXd expu = Eigen::VectorXd::Zero(geometry.Ntheta);
+	Eigen::VectorXd expl = Eigen::VectorXd::Zero(geometry.Ntheta);
+	Eigen::VectorXd adj_expu = Eigen::VectorXd::Zero(geometry.Ntheta);
+	Eigen::VectorXd adj_expl = Eigen::VectorXd::Zero(geometry.Ntheta);
+
+	for(int i = 0; i < geometry.Ntheta; i ++)
+	{
+		expu(i) = std::exp(-layer.optical_thickness / geometry.mu_uh(i));
+		expl(i) = std::exp(-layer.optical_thickness / geometry.mu_lh(i));
+	}
+
+	adj_layer.optical_thickness += adj_result.optical_thickness * 2.0;
+
+	for(int m = 0; m <= geometry.M; m ++)
+	{
+		double factor = (m == 0 ? 2.0 : 1.0);
+
+		Eigen::MatrixXd Q1_c = factor * layer.reflectance_m_bottom_cos[m] * geometry.WMU_uh * layer.reflectance_m_top_cos[m];
+		Eigen::MatrixXd Q1_s = factor * layer.reflectance_m_bottom_sin[m] * geometry.WMU_uh * layer.reflectance_m_top_sin[m];
+		
+		Eigen::MatrixXd Q2_c = factor * Q1_c * geometry.WMU_lh;
+		Eigen::MatrixXd Q2_s = factor * Q1_s * geometry.WMU_lh;
+
+		Eigen::MatrixXd E = Eigen::MatrixXd::Identity(geometry.Ntheta, geometry.Ntheta);
+		Eigen::MatrixXd EQ_c = E - Q2_c;
+		Eigen::MatrixXd EQ_s = E - Q2_s;
+
+		Eigen::PartialPivLU<Eigen::MatrixXd> lu_c(EQ_c);
+		Eigen::PartialPivLU<Eigen::MatrixXd> lu_s(EQ_s);
+		Eigen::MatrixXd S_c = lu_c.solve(Q1_c);
+		Eigen::MatrixXd S_s = lu_s.solve(Q1_s);
+
+		Eigen::MatrixXd Sexp_c = S_c * expl.asDiagonal();
+		Eigen::MatrixXd Sexp_s = S_s * expl.asDiagonal();
+
+		Eigen::MatrixXd D_c_term1 = factor * S_c * geometry.WMU_lh * layer.transmittance_m_top_cos[m];
+		Eigen::MatrixXd D_s_term1 = factor * S_s * geometry.WMU_lh * layer.transmittance_m_top_sin[m];
+
+		Eigen::MatrixXd D_c = D_c_term1 + layer.transmittance_m_top_cos[m] + Sexp_c;
+		Eigen::MatrixXd D_s = D_s_term1 + layer.transmittance_m_top_sin[m] + Sexp_s;
+
+		Eigen::MatrixXd R2exp_c = layer.reflectance_m_top_cos[m] * expl.asDiagonal();
+		Eigen::MatrixXd R2exp_s = layer.reflectance_m_top_sin[m] * expl.asDiagonal();
+
+		Eigen::MatrixXd U_c_term1 = factor * layer.reflectance_m_top_cos[m] * geometry.WMU_lh * D_c;
+		Eigen::MatrixXd U_s_term1 = factor * layer.reflectance_m_top_sin[m] * geometry.WMU_lh * D_s;
+
+		Eigen::MatrixXd U_c = U_c_term1 + R2exp_c;
+		Eigen::MatrixXd U_s = U_s_term1 + R2exp_s;
+
+		Eigen::MatrixXd adj_ref_top_cos = adj_result.reflectance_m_top_cos[m] + adj_result.reflectance_m_bottom_cos[m];
+		Eigen::MatrixXd adj_ref_top_sin = adj_result.reflectance_m_top_sin[m] + adj_result.reflectance_m_bottom_sin[m];
+		Eigen::MatrixXd adj_trans_top_cos = adj_result.transmittance_m_top_cos[m] + adj_result.transmittance_m_bottom_cos[m];
+		Eigen::MatrixXd adj_trans_top_sin = adj_result.transmittance_m_top_sin[m] + adj_result.transmittance_m_bottom_sin[m];
+
+		Eigen::MatrixXd adj_S_c = Eigen::MatrixXd::Zero(geometry.Ntheta, geometry.Ntheta);
+		Eigen::MatrixXd adj_S_s = Eigen::MatrixXd::Zero(geometry.Ntheta, geometry.Ntheta);
+
+		if(m == 0 && layer.enable_atmospheric_emission)
+		{
+			Eigen::VectorXd adj_total_src = adj_result.source_up + adj_result.source_down;
+
+			adj_layer.source_up += adj_total_src;
+
+			Eigen::MatrixXd T_bot_W = layer.transmittance_m_bottom_cos[m] * geometry.WMU_uh;
+			
+			adj_layer.source_up += T_bot_W.transpose() * adj_total_src;
+			adj_layer.source_up += expu.asDiagonal() * adj_total_src;
+
+			Eigen::VectorXd W_src_up = geometry.WMU_uh * layer.source_up;
+			adj_layer.transmittance_m_bottom_cos[m] += adj_total_src * W_src_up.transpose();
+
+			adj_expu += adj_total_src.cwiseProduct(layer.source_up);
+
+			Eigen::VectorXd V = layer.reflectance_m_top_cos[m] * geometry.WMU_lh * layer.source_down;
+			
+			Eigen::VectorXd adj_V = T_bot_W.transpose() * adj_total_src;
+			adj_V += expu.asDiagonal() * adj_total_src;
+
+			Eigen::VectorXd W_V = geometry.WMU_uh * V;
+			adj_layer.transmittance_m_bottom_cos[m] += adj_total_src * W_V.transpose();
+
+			adj_expu += adj_total_src.cwiseProduct(V);
+
+			Eigen::VectorXd W_src_down = geometry.WMU_lh * layer.source_down;
+			adj_layer.reflectance_m_top_cos[m] += adj_V * W_src_down.transpose();
+			adj_layer.source_down += (layer.reflectance_m_top_cos[m] * geometry.WMU_lh).transpose() * adj_V;
+
+			Eigen::VectorXd V2 = layer.reflectance_m_top_cos[m] * geometry.WMU_lh * S_c * geometry.WMU_lh * layer.source_down;
+			
+			Eigen::VectorXd adj_V2 = T_bot_W.transpose() * adj_total_src;
+			adj_V2 += expu.asDiagonal() * adj_total_src;
+
+			Eigen::VectorXd W_V2 = geometry.WMU_uh * V2;
+			adj_layer.transmittance_m_bottom_cos[m] += adj_total_src * W_V2.transpose();
+			adj_expu += adj_total_src.cwiseProduct(V2);
+
+			Eigen::VectorXd X = S_c * geometry.WMU_lh * layer.source_down;
+			adj_layer.reflectance_m_top_cos[m] += adj_V2 * (geometry.WMU_lh * X).transpose();
+			
+			Eigen::VectorXd adj_X = geometry.WMU_lh.transpose() * layer.reflectance_m_top_cos[m].transpose() * adj_V2;
+
+			adj_S_c += adj_X * W_src_down.transpose();
+			
+			adj_layer.source_down += (S_c * geometry.WMU_lh).transpose() * adj_X;
+		}
+
+		Eigen::MatrixXd adj_T_res_c = adj_trans_top_cos;
+
+		adj_layer.transmittance_m_top_cos[m] += adj_T_res_c * expl.asDiagonal();
+		adj_expl += (layer.transmittance_m_top_cos[m].transpose() * adj_T_res_c).diagonal();
+
+		Eigen::MatrixXd adj_D_c = expl.asDiagonal() * adj_T_res_c;
+		adj_expl += (adj_T_res_c * D_c.transpose()).diagonal();
+
+		adj_layer.transmittance_m_top_cos[m] += factor * adj_T_res_c * (geometry.WMU_lh * D_c).transpose();
+		adj_D_c += factor * (layer.transmittance_m_top_cos[m] * geometry.WMU_lh).transpose() * adj_T_res_c;
+
+		Eigen::MatrixXd adj_T_res_s = adj_trans_top_sin;
+		adj_layer.transmittance_m_top_sin[m] += adj_T_res_s * expl.asDiagonal();
+		adj_expl += (layer.transmittance_m_top_sin[m].transpose() * adj_T_res_s).diagonal();
+
+		Eigen::MatrixXd adj_D_s = expl.asDiagonal() * adj_T_res_s;
+		adj_expl += (adj_T_res_s * D_s.transpose()).diagonal();
+
+		adj_layer.transmittance_m_top_sin[m] += factor * adj_T_res_s * (geometry.WMU_lh * D_s).transpose();
+		adj_D_s += factor * (layer.transmittance_m_top_sin[m] * geometry.WMU_lh).transpose() * adj_T_res_s;
+
+		Eigen::MatrixXd adj_R_res_c = adj_ref_top_cos;
+		
+		adj_layer.reflectance_m_top_cos[m] += adj_R_res_c;
+
+		Eigen::MatrixXd adj_U_c = expu.asDiagonal() * adj_R_res_c;
+		adj_expu += (adj_R_res_c * U_c.transpose()).diagonal();
+
+		adj_layer.transmittance_m_bottom_cos[m] += factor * adj_R_res_c * (geometry.WMU_uh * U_c).transpose();
+		adj_U_c += factor * (layer.transmittance_m_bottom_cos[m] * geometry.WMU_uh).transpose() * adj_R_res_c;
+
+		Eigen::MatrixXd adj_R_res_s = adj_ref_top_sin;
+		
+		adj_layer.reflectance_m_top_sin[m] += adj_R_res_s;
+
+		Eigen::MatrixXd adj_U_s = expu.asDiagonal() * adj_R_res_s;
+		adj_expu += (adj_R_res_s * U_s.transpose()).diagonal();
+
+		adj_layer.transmittance_m_bottom_sin[m] += factor * adj_R_res_s * (geometry.WMU_uh * U_s).transpose();
+		adj_U_s += factor * (layer.transmittance_m_bottom_sin[m] * geometry.WMU_uh).transpose() * adj_R_res_s;
+
+		adj_layer.reflectance_m_top_cos[m] += factor * adj_U_c * (geometry.WMU_lh * D_c).transpose();
+		adj_D_c += factor * (layer.reflectance_m_top_cos[m] * geometry.WMU_lh).transpose() * adj_U_c;
+
+		adj_layer.reflectance_m_top_cos[m] += adj_U_c * expl.asDiagonal();
+		adj_expl += (layer.reflectance_m_top_cos[m].transpose() * adj_U_c).diagonal();
+
+		adj_layer.reflectance_m_top_sin[m] += factor * adj_U_s * (geometry.WMU_lh * D_s).transpose();
+		adj_D_s += factor * (layer.reflectance_m_top_sin[m] * geometry.WMU_lh).transpose() * adj_U_s;
+
+		adj_layer.reflectance_m_top_sin[m] += adj_U_s * expl.asDiagonal();
+		adj_expl += (layer.reflectance_m_top_sin[m].transpose() * adj_U_s).diagonal();
+
+		adj_layer.transmittance_m_top_cos[m] += adj_D_c;
+
+		Eigen::MatrixXd adj_S_c = adj_D_c * expl.asDiagonal();
+		adj_expl += (S_c.transpose() * adj_D_c).diagonal();
+
+		adj_S_c += factor * adj_D_c * (geometry.WMU_lh * layer.transmittance_m_top_cos[m]).transpose();
+		adj_layer.transmittance_m_top_cos[m] += factor * (S_c * geometry.WMU_lh).transpose() * adj_D_c;
+
+		adj_layer.transmittance_m_top_sin[m] += adj_D_s;
+
+		Eigen::MatrixXd adj_S_s = adj_D_s * expl.asDiagonal();
+		adj_expl += (S_s.transpose() * adj_D_s).diagonal();
+
+		adj_S_s += factor * adj_D_s * (geometry.WMU_lh * layer.transmittance_m_top_sin[m]).transpose();
+		adj_layer.transmittance_m_top_sin[m] += factor * (S_s * geometry.WMU_lh).transpose() * adj_D_s;
+		
+		Eigen::MatrixXd adj_Q1_c = lu_c.transpose().solve(adj_S_c);
+		Eigen::MatrixXd adj_Q2_c = adj_Q1_c * S_c.transpose();
+
+		Eigen::MatrixXd adj_Q1_s = lu_s.transpose().solve(adj_S_s);
+		Eigen::MatrixXd adj_Q2_s = adj_Q1_s * S_s.transpose();
+
+		adj_Q1_c += factor * adj_Q2_c * geometry.WMU_lh.transpose();
+		adj_Q1_s += factor * adj_Q2_s * geometry.WMU_lh.transpose();
+
+		adj_layer.reflectance_m_bottom_cos[m] += factor * adj_Q1_c * (geometry.WMU_uh * layer.reflectance_m_top_cos[m]).transpose();
+		adj_layer.reflectance_m_top_cos[m]    += factor * (layer.reflectance_m_bottom_cos[m] * geometry.WMU_uh).transpose() * adj_Q1_c;
+
+		adj_layer.reflectance_m_bottom_sin[m] += factor * adj_Q1_s * (geometry.WMU_uh * layer.reflectance_m_top_sin[m]).transpose();
+		adj_layer.reflectance_m_top_sin[m]    += factor * (layer.reflectance_m_bottom_sin[m] * geometry.WMU_uh).transpose() * adj_Q1_s;
+	}
+
+	for(int i = 0; i < geometry.Ntheta; i++)
+	{
+		adj_layer.optical_thickness += adj_expu(i) * (-1.0 / geometry.mu_uh(i)) * expu(i);
+		adj_layer.optical_thickness += adj_expl(i) * (-1.0 / geometry.mu_lh(i)) * expl(i);
+	}
+
+	return adj_layer;
+}
+
+}

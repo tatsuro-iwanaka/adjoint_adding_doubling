@@ -19,9 +19,9 @@ namespace radiative_transfer
 
 inline void RadiativeTransfer::exportResultNetCDF(void)
 {
-	std::cout << "[RadiativeTransfer::exportResultNetCDF] Exporting result." << std::endl;
-
 	std::string filename = simulation_.directory_name + simulation_.result_name;
+
+	logger::global().info("RadiativeTransfer::exportResultNetCDF") << "Exporting result to " << filename << ".";
 
 	netCDF::NcFile outputFile(filename, netCDF::NcFile::replace);
 

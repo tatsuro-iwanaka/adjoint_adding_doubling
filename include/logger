@@ -165,7 +165,7 @@ inline void ConsoleSink::write(const Record& r)
 		os << " {" << r.component << "}" << std::flush;
 	}
 
-	os << " " << r.message << std::endl << std::flush;
+	os << " " << r.message << "\n" << std::flush;
 }
 
 inline FileSink::FileSink(std::string path, bool is_append = false)
@@ -317,6 +317,12 @@ inline ScopedTimer::~ScopedTimer()
 	// logger_.log(level_, component_, oss.str());
 
 	logger_.logstream(level_, component_) << timer_name_ << " took " << std::fixed << std::setprecision(3) << (chronoflux::now(9.0) - start_time_).toTotalMilliseconds() << " ms";
+}
+
+inline Log& global()
+{
+	static Log instance; // 初回呼び出し時に一度だけ生成される
+	return instance;
 }
 
 }

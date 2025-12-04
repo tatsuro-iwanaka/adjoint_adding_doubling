@@ -69,12 +69,8 @@ inline void computeMieScattering(int n, double radius, double wavelength, std::c
 	double diameter = 2.0 * radius;
 	double x = PI * diameter / wavelength;
 
-	// std::cout << wavelength << ", " << radius << ", " << x << std::endl;
-
 	// 2) 級数上限 N_stop
 	int nstop = int(std::floor(x + 4.05 * std::cbrt(x) + 2.0));
-
-	//std::cout << "Riccati-Bessel" << std::endl;
 
 	// 3) Riccati–Bessel 商 D_n(z) の計算
 	std::vector<std::complex<double>> DD(nstop + 1);
@@ -126,10 +122,6 @@ inline void computeMieScattering(int n, double radius, double wavelength, std::c
 		}
 	}
 
-	//std::cout << DD[nstop] << std::endl;
-
-	//std::cout << "a_n, b_n and Q" << std::endl;
-
 	// 4) Mie 係数 a_n, b_n と効率 Q の計算
 	std::vector<std::complex<double>> a(nstop), b(nstop);
 	double Qsca = 0.0;
@@ -150,8 +142,6 @@ inline void computeMieScattering(int n, double radius, double wavelength, std::c
 		// double pi1 = 1.0;
 		// std::complex<double> ann_1(0.0, 0.0);
 		// std::complex<double> bnn_1(0.0, 0.0);
-
-		//std::cout << xi0 << ", " << xi1 << std::endl;
 
 		for (int i = 0; i < nstop; ++i)
 		{
@@ -188,8 +178,6 @@ inline void computeMieScattering(int n, double radius, double wavelength, std::c
 			psi0 = psi1;
 			psi1 = xi1.real();
 		}
-
-		//std::cout << xi0 << ", " << xi1 << ", " << psi0 << ", " << psi1 << std::endl;
 	}
 
 	// 5) 無次元効率 Q の正規化
@@ -197,17 +185,11 @@ inline void computeMieScattering(int n, double radius, double wavelength, std::c
 	Qext = 2.0 * Qext / (x * x);
 	double Qabs = Qext - Qsca;
 
-	// std::cout << "Qsca: " << Qsca << std::endl;
-	// std::cout << "Qabs: " << Qabs << std::endl;
-	// std::cout << "Qext: " << Qext << std::endl;
-
 	// 6) 断面積 [m^2] に変換
 	double area = PI * radius * radius;
 	scattering_cross_section = Qsca * area;
 	absorption_cross_section = Qabs * area;
 	extinction_cross_section = Qext * area;
-
-	//std::cout << "Scattering phase function" << std::endl;
 
 	// 7) 位相関数の計算
 	phase_function.clear();
@@ -342,8 +324,6 @@ inline double ModelBuilder::interpolateVerticalProfile(double x, const std::vect
 	// it は区間の「右端」なので、一つ戻って「左端」を取得
 	size_t j = std::distance(table.begin(), it) - 1;
 
-	// std::cout << j << ", " << table.size() << std::endl;
-
 	// 4. 補間係数 r の計算
 	double x0 = table[j][0];
 	double x1 = table[j + 1][0];
@@ -389,8 +369,6 @@ inline std::vector<Species> ModelBuilder::buildSpecies_(const Configuration& con
 
 	netCDF::NcFile nc_hitran;
 
-	// std::cout << atmosphere_model.is_hitran << std::endl;
-
 	if(atmosphere_model.is_hitran == true)
 	{
 		nc_hitran.open(configuration.atmosphere.filename_hitran.value(), netCDF::NcFile::read);
@@ -424,7 +402,6 @@ inline std::vector<Species> ModelBuilder::buildSpecies_(const Configuration& con
 			if (s_input.is_same_layering_atmosphere)
 			{
 				raw_value = s_input.vertical_profile[j][0];
-				// std::cout << raw_value << std::endl;
 			}
 			else
 			{
@@ -432,8 +409,6 @@ inline std::vector<Species> ModelBuilder::buildSpecies_(const Configuration& con
 				// 入力の高度単位に合わせて z_target を変換 (m -> input_unit)
 				double z_query = z_target * scaleUnit("m", input_unit_alt);
 				raw_value = interpolateVerticalProfile(z_query, s_input.vertical_profile, s_input.vertical_profile_interpolation.value());
-				// std::cout << z_target << ", " << input_unit_alt << std::endl;
-				// std::cout << z_query << ", " << s_input.vertical_profile[0][0] << ", " << s_input.vertical_profile.back()[0] << ", " << raw_value << std::endl;
 			}
 
 			// 3. 単位と物理量に応じた変換 (数密度と混合比の両方を埋める)
@@ -481,12 +456,7 @@ inline std::vector<Species> ModelBuilder::buildSpecies_(const Configuration& con
 					std::vector<double> temperature = {298.0};
 					std::vector<std::vector<double>> cross_section = {{s_input.scattering_cross_section.value() * scaleUnit(s_input.scattering_cross_section_unit.value(), "m2")}, {s_input.scattering_cross_section.value() * scaleUnit(s_input.scattering_cross_section_unit.value(), "m2")}};
 
-					// std::cout << spectral.spectral_grid.front() << ", " << spectral.spectral_grid.back() << std::endl;
-					// std::cout << spectral_[0] << ", " << spectral_[1] << std::endl;
-					// std::cout << cross_section[0][0] << ", " << cross_section[1][0] << std::endl;
-
 					s.scattering_cross_section.loadVectors(spectral_, temperature, cross_section);
-					// std::cout << s.scattering_cross_section.cross_section(spectral.spectral_grid.front(), 300.0) << std::endl;
 				}
 				else if(s_input.scattering_cross_section_type.value() == CrossSectionType::External)
 				{
@@ -807,12 +777,6 @@ inline std::vector<Species> ModelBuilder::buildSpecies_(const Configuration& con
 					s.particle_size_distribution = node_weight[0]; // 本当は不要
 					s.weight_particle_size_distribution = node_weight[1];
 				}
-
-				// std::cout << s_input.count_radius.value() << ", " << s.particle_size_distribution.size() << std::endl;
-				// for(int nt = 0; nt < s.particle_size_distribution.size(); ++nt)
-				// {
-				// 	std::cout << s.particle_size_distribution[nt][0] << ", " << s.particle_size_distribution[nt][1] << ", " << s.weight_particle_size_distribution[nt][1] << std::endl;
-				// }
 			}
 		}
 
@@ -969,7 +933,7 @@ inline SimulationInformation ModelBuilder::buildSimulation(const Configuration& 
 	simulation.simulation_name = configuration.simulation.simulation_name.value();
 	simulation.n_scattering_angle = configuration.simulation.n_scattering_angle.value();
 	simulation.n_parallel = configuration.simulation.n_parallel.value();
-	simulation.logfile_name = configuration.simulation.logfile_name.value();
+	// simulation.logfile_name = configuration.simulation.logfile_name.value();
 
 	return simulation;
 }
@@ -1025,7 +989,6 @@ inline AtmosphereModel ModelBuilder::buildAtmosphereModel(const Configuration& c
 	int n_layer = model.altitude.size();
 
 	model.temperature.resize(n_layer);
-	// std::cout << "configuration.atmosphere.is_same_temperature_layering_atmosphere = " << configuration.atmosphere.is_same_temperature_layering_atmosphere << std::endl;
 	if(configuration.atmosphere.is_same_temperature_layering_atmosphere == false)
 	{
 		if(configuration.atmosphere.vertical_temperature_profile == VerticalTemperatureProfile::VIRA_EQUATOR || configuration.atmosphere.vertical_temperature_profile == VerticalTemperatureProfile::VIRA_45 || configuration.atmosphere.vertical_temperature_profile == VerticalTemperatureProfile::VIRA_60 || configuration.atmosphere.vertical_temperature_profile == VerticalTemperatureProfile::Table)
@@ -1081,8 +1044,7 @@ inline AtmosphereModel ModelBuilder::buildAtmosphereModel(const Configuration& c
 			model.temperature[i] = configuration.atmosphere.temperature_profile[i][0];
 		}
 	}
-	// std::cout << "thru" << std::endl;
-
+	
 	model.pressure.resize(n_layer);
 
 	if(configuration.atmosphere.is_same_pressure_layering_atmosphere == false)
@@ -1149,7 +1111,6 @@ inline AtmosphereModel ModelBuilder::buildAtmosphereModel(const Configuration& c
 		}
 	}
 
-	// std::cout << "thru" << std::endl;
 	model.number_density.resize(n_layer);
 
 	//Ideal Gas Law PV=nRT n(mol)/V(m^3) = P(N/m^2)/(R(N.m/K/mol)*T(K)) n(molecules/m^3)=NA*P*/(R*T)
@@ -1164,20 +1125,17 @@ inline AtmosphereModel ModelBuilder::buildAtmosphereModel(const Configuration& c
 	{
 		if(configuration.atmosphere.is_same_number_density_layering_atmosphere == false)
 		{
-			// std::cout << "thru" << std::endl;
 			if(configuration.atmosphere.vertical_number_density_profile == VerticalNumberDensityProfile::VIRA_EQUATOR || configuration.atmosphere.vertical_number_density_profile == VerticalNumberDensityProfile::VIRA_45 || configuration.atmosphere.vertical_number_density_profile == VerticalNumberDensityProfile::VIRA_60 || configuration.atmosphere.vertical_number_density_profile == VerticalNumberDensityProfile::Table)
 			{
 				std::vector<std::vector<double>> profile_data;
 				if(configuration.atmosphere.vertical_number_density_profile == VerticalNumberDensityProfile::VIRA_EQUATOR)
 				{
-					// std::cout << "thru" << std::endl;
 					profile_data.resize(vira_equator.size());
 					
 					for(int i = 0; i < vira_equator.size(); i ++)
 					{
 						profile_data[i] = {vira_equator[i][0] * scaleUnit("km", "m"), vira_equator[i][3] * scaleUnit("m-3", "m-3")};
 					}
-					// std::cout << "thru" << std::endl;
 				}
 				else if(configuration.atmosphere.vertical_number_density_profile == VerticalNumberDensityProfile::VIRA_45)
 				{
@@ -1214,8 +1172,6 @@ inline AtmosphereModel ModelBuilder::buildAtmosphereModel(const Configuration& c
 					}
 				}
 				
-				// std::cout << "VIRA" << std::endl;
-				// std::cout << model.number_density.size() << ", " << model.altitude.size() << std::endl;
 				for(int i = 0; i < n_layer; ++i)
 				{
 					if(configuration.atmosphere.unit_dim_number_density.value() == UnitDim::NumberDensity)
@@ -1227,7 +1183,6 @@ inline AtmosphereModel ModelBuilder::buildAtmosphereModel(const Configuration& c
 						model.number_density[i] = interpolateVerticalProfile(model.altitude[i], profile_data, configuration.atmosphere.vertical_number_density_interpolation.value()) / (model.altitude_top[i] - model.altitude_bottom[i]);
 					}
 				}
-				// std::cout << "thru" << std::endl;
 			}
 			else if(configuration.atmosphere.vertical_number_density_profile == VerticalNumberDensityProfile::External)
 			{
@@ -1250,7 +1205,6 @@ inline AtmosphereModel ModelBuilder::buildAtmosphereModel(const Configuration& c
 		}
 	}
 
-	// std::cout << "thru" << std::endl;
 	model.enable_atmospheric_emission = configuration.simulation.enable_atmospheric_emission.value();
 
 	// Surface
@@ -1630,14 +1584,18 @@ inline std::vector<double> generateGaussianKernel(double sigma, int sampling_cou
 {
 	if (sigma <= 0.0)
 	{
+		
+		logger::global().fatal("generateGaussianKernel") << "Sigma must be positive.";
 		throw std::runtime_error("Sigma must be positive.");
 	}
 	if ( sampling_count <= 1)
 	{
+		logger::global().fatal("generateGaussianKernel") << "Total samples must be greater than 1.";
 		throw std::runtime_error("Total samples must be greater than 1.");
 	}
 	if (sampling_count % 2 == 0)
 	{
+		logger::global().fatal("generateGaussianKernel") << "Total samples must be odd.";
 		throw std::runtime_error("Total samples must be odd.");
 	}
 
@@ -1671,11 +1629,13 @@ inline std::vector<double> generateRectangularKernel(int sampling_count)
 {
 	if ( sampling_count <= 1)
 	{
+		logger::global().fatal("generateRectangularKernel") << "Total samples must be greater than 1.";
 		throw std::runtime_error("Total samples must be greater than 1.");
 	}
 
 	if (sampling_count % 2 == 0)
 	{
+		logger::global().fatal("generateRectangularKernel") << "Total samples must be odd.";
 		throw std::runtime_error("Total samples must be odd.");
 	}
 
@@ -1693,6 +1653,7 @@ inline std::vector<std::vector<std::vector<double>>> generateLogNormalSizeDistri
 	{
 		if (sigma_g <= 0.0)
 		{
+			logger::global().fatal("generateLogNormalSizeDistribution") << "sigma_g must be positive.";
 			throw std::runtime_error("[generateLogNormalSizeDistribution] sigma_g must be positive.");
 		}
 	}
@@ -1734,6 +1695,7 @@ inline std::vector<std::vector<std::vector<double>>> generateRectangularSizeDist
 
 	if (n_r <= 0 || width <= 0.0)
 	{
+		logger::global().fatal("generateRectangularSizeDistribution") << "Invalid input parameters (n_r <= 0 or width <= 0).";
 		throw std::runtime_error("[generateRectangularSizeDistribution] Invalid input parameters (n_r <= 0 or width <= 0).");
 	}
 
@@ -1742,6 +1704,7 @@ inline std::vector<std::vector<std::vector<double>>> generateRectangularSizeDist
 
 	if (r_min < 0.0)
 	{
+		logger::global().fatal("generateRectangularSizeDistribution") << "Rectangular distribution extends to negative radius (r_min < 0). Adjust r_mean or width.";
 		throw std::runtime_error("[generateRectangularSizeDistribution] Rectangular distribution extends to negative radius (r_min < 0). Adjust r_mean or width.");
 	}
 
@@ -1772,11 +1735,13 @@ inline std::vector<std::vector<std::vector<double>>> generateGammaSizeDistributi
 
 	if (n_r <= 0 || a <= 0.0 || b <= 0.0)
 	{
+		logger::global().fatal("generateGammaSizeDistribution") << "Parameters a and b must be positive.";
 		throw std::runtime_error("[generateGammaSizeDistribution] Parameters a and b must be positive.");
 	}
 	
 	if ((1 - b) / b <= 0.0)
 	{
+		logger::global().fatal("generateGammaSizeDistribution") << "(1 - 2b) / b must be positive for convergence. Check parameter b.";
 		throw std::runtime_error("[generateGammaSizeDistribution] (1 - 2b) / b must be positive for convergence. Check parameter b.");
 	}
 
@@ -1811,6 +1776,7 @@ inline std::vector<std::vector<std::vector<double>>> generateModifiedGammaSizeDi
 
 	if (n_r <= 0 || r_c <= 0.0 || alpha <= 0.0 || gamma <= 0.0)
 	{
+		logger::global().fatal("generateModifiedGammaSizeDistribution") << "Parameters must be positive.";
 		throw std::runtime_error("[generateModifiedGammaSizeDistribution] Parameters must be positive.");
 	}
 	
@@ -1854,6 +1820,7 @@ inline std::vector<std::vector<std::vector<double>>> generatePowerLawSizeDistrib
 
 	if (n_r <= 0 || pl_r1 <= 0.0 || pl_r2 <= 0.0 || pl_r1 >= pl_r2)
 	{
+		logger::global().fatal("generatePowerLawSizeDistribution") << "Invalid limits or parameters (r1 >= r2).";
 		throw std::runtime_error("[generatePowerLawSizeDistribution] Invalid limits or parameters (r1 >= r2).");
 	}
 
@@ -1908,6 +1875,7 @@ inline std::vector<std::vector<double>> loadSpectralFile(std::string filename, s
 			netCDF::NcVar var = dataFile.getVar(name);
 			if(var.isNull())
 			{
+				logger::global().fatal("loadSpectralFile") << "NetCDF Variable '" + name + "' not found in " + filename;
 				throw std::runtime_error("NetCDF Variable '" + name + "' not found in " + filename);
 			}
 			return var;
@@ -1927,7 +1895,7 @@ inline std::vector<std::vector<double>> loadSpectralFile(std::string filename, s
 		}
 		catch(...)
 		{
-			std::cout << "[Warning] 'units' missing for " << var_name_spectral << ". Assuming " << unit_target_spectral << "." << std::endl;
+			logger::global().info("loadSpectralFile") << "Unit missing for " << var_name_spectral << ". Assuming " << unit_target_spectral << ".";
 			source_unit_spec = unit_target_spectral;
 		}
 
@@ -1939,7 +1907,7 @@ inline std::vector<std::vector<double>> loadSpectralFile(std::string filename, s
 		}
 		catch(...)
 		{
-			std::cout << "[Warning] 'units' missing for " << var_name_value << ". Assuming " << unit_target_value << "." << std::endl;
+			logger::global().info("loadSpectralFile") << "Unit missing for " << var_name_value << ". Assuming " << unit_target_value << ".";
 			source_unit_value = unit_target_value;
 		}
 
@@ -1988,6 +1956,7 @@ inline std::vector<std::vector<double>> loadSpectralFile(std::string filename, s
 	}
 	catch(const netCDF::exceptions::NcException& e)
 	{
+		logger::global().fatal("loadSpectralFile") << "NetCDF Error in " + filename + ": " + std::string(e.what());
 		throw std::runtime_error("NetCDF Error in " + filename + ": " + std::string(e.what()));
 	}
 }
@@ -2003,6 +1972,7 @@ inline std::vector<std::vector<double>> loadRefractiveIndexSpectralFile(std::str
 			netCDF::NcVar var = dataFile.getVar(name);
 			if(var.isNull())
 			{
+				logger::global().fatal("loadRefractiveIndexSpectralFile") << "NetCDF Variable '" + name + "' not found in " + filename;
 				throw std::runtime_error("NetCDF Variable '" + name + "' not found in " + filename);
 			}
 			return var;
@@ -2017,6 +1987,7 @@ inline std::vector<std::vector<double>> loadRefractiveIndexSpectralFile(std::str
 		// 次元整合性チェック
 		if (v_nr.getDim(0).getSize() != n_data || v_ni.getDim(0).getSize() != n_data)
 		{
+			logger::global().fatal("oadRefractiveIndexSpectralFile") << "Dimension size mismatch in refractive index file.";
 			throw std::runtime_error("Dimension size mismatch in refractive index file.");
 		}
 
@@ -2029,7 +2000,7 @@ inline std::vector<std::vector<double>> loadRefractiveIndexSpectralFile(std::str
 		}
 		catch(...)
 		{
-			std::cout << "[Warning] 'units' missing for " << var_name_spectral << ". Assuming " << unit_target_spectral << "." << std::endl;
+			logger::global().info("loadRefractiveIndexSpectralFile") << "Unit missing for " << var_name_spectral << ". Assuming " << unit_target_spectral << "." ;
 			source_unit_spec = unit_target_spectral;
 		}
 
@@ -2078,6 +2049,7 @@ inline std::vector<std::vector<double>> loadRefractiveIndexSpectralFile(std::str
 	}
 	catch(const netCDF::exceptions::NcException& e)
 	{
+		logger::global().fatal("oadRefractiveIndexSpectralFile") << "NetCDF Error in " + filename + ": " + std::string(e.what());
 		throw std::runtime_error("NetCDF Error in " + filename + ": " + std::string(e.what()));
 	}
 }
@@ -2094,6 +2066,7 @@ inline std::vector<std::vector<std::vector<double>>> loadRefractiveIndexSpectral
 			netCDF::NcVar var = dataFile.getVar(name);
 			if(var.isNull())
 			{
+				logger::global().fatal("loadRefractiveIndexSpectralVerticalFile") << "NetCDF Variable '" + name + "' not found in " + filename;
 				throw std::runtime_error("NetCDF Variable '" + name + "' not found in " + filename);
 			}
 			return var;
@@ -2113,6 +2086,7 @@ inline std::vector<std::vector<std::vector<double>>> loadRefractiveIndexSpectral
 		// 2Dデータの次元チェック (念のため)
 		if (v_nr.getDimCount() != 2 || v_ni.getDimCount() != 2)
 		{
+			logger::global().fatal("loadRefractiveIndexSpectralVerticalFile") << "Refractive index variables (nr, ni) must be 2D [altitude, spectral].";
 			throw std::runtime_error("Refractive index variables (nr, ni) must be 2D [altitude, spectral].");
 		}
 
@@ -2128,7 +2102,7 @@ inline std::vector<std::vector<std::vector<double>>> loadRefractiveIndexSpectral
 		}
 		catch(...)
 		{
-			std::cout << "[Warning] 'units' missing for " << var_name_spectral << ". Assuming " << unit_target_spectral << "." << std::endl;
+			logger::global().info("loadRefractiveIndexSpectralVerticalFile") << "Unit missing for " << var_name_spectral << ". Assuming " << unit_target_spectral << ".";
 			source_unit_spec = unit_target_spectral;
 		}
 
@@ -2140,7 +2114,7 @@ inline std::vector<std::vector<std::vector<double>>> loadRefractiveIndexSpectral
 		}
 		catch(...)
 		{
-			std::cout << "[Warning] 'units' missing for " << var_name_altitude << ". Assuming " << unit_target_altitude << "." << std::endl;
+			logger::global().info("loadRefractiveIndexSpectralVerticalFile") << "Unit missing for " << var_name_altitude << ". Assuming " << unit_target_altitude << ".";
 			source_unit_alt = unit_target_altitude;
 		}
 
@@ -2217,6 +2191,7 @@ inline std::vector<std::vector<std::vector<double>>> loadRefractiveIndexSpectral
 	}
 	catch(const netCDF::exceptions::NcException& e)
 	{
+		logger::global().fatal("loadRefractiveIndexSpectralVerticalFile") << "NetCDF Error in " + filename + ": " + std::string(e.what());
 		throw std::runtime_error("NetCDF Error in " + filename + ": " + std::string(e.what()));
 	}
 }
@@ -2237,6 +2212,7 @@ inline std::vector<std::vector<double>> generateSpectralGridBandpass(int n_sampl
 	// フィルタが無効（全部ゼロ）な場合のチェック
 	if (max_resp <= 0.0)
 	{
+		logger::global().fatal("generateSpectralGridBandpass") << "Filter response is invalid (max response is 0).";
 		throw std::runtime_error("Filter response is invalid (max response is 0).");
 	}
 
@@ -2259,6 +2235,7 @@ inline std::vector<std::vector<double>> generateSpectralGridBandpass(int n_sampl
 		{
 			if (found_peak_end)
 			{
+				logger::global().fatal("generateSpectralGridBandpass") << "The filter has separate passbands or significant side-lobes.";
 				throw std::runtime_error("The filter has separate passbands or significant side-lobes.");
 			}
 			
@@ -2280,7 +2257,8 @@ inline std::vector<std::vector<double>> generateSpectralGridBandpass(int n_sampl
 	// 範囲が見つからなかった場合（あり得ないはずだが念のため）
 	if (valid_min >= valid_max)
 	{
-		// ピーク付近の狭い範囲だけでも確保する、あるいはエラーにする
+		
+		logger::global().fatal("generateSpectralGridBandpass") << "Could not determine valid filter range. Check filter data or threshold.";// ピーク付近の狭い範囲だけでも確保する、あるいはエラーにする
 		// ここではエラーにする
 		throw std::runtime_error("Could not determine valid filter range. Check filter data or threshold.");
 	}
@@ -2451,7 +2429,6 @@ inline double computePlanckFunction(double spectral, double temperature, Spectra
 
 inline double computeThermalEmission(double plank_function, double tau, double mu)
 {
-	// std::cout << B << ", " << tau << ", " << mu << std::endl;
 	// 1 – exp(‑τ/μ)  ---  use expm1 for numerical safety when τ is very small.
 	return plank_function * (-std::expm1(-tau / mu));
 }
@@ -2472,8 +2449,6 @@ inline double computeAsymmetryParameter(const std::vector<std::vector<double>>& 
 		double theta = f[i][0];
 		double mu = std::cos(theta);
 		double sine = std::sin(theta);
-
-		// std::cout << theta * 180.0 / PI << ", " << f[i][1] << std::endl;
 
 		if(i == 0 || i == n - 1)
 		{
@@ -2523,7 +2498,6 @@ inline RadiativeLayer RadiativeTransferSolver::initializeAtmosphericLayer_(const
 
 	for(int e_n = 0; e_n < geometry_.Ntheta; e_n ++)
 	{
-		//std::cout << layer.planck_function << std::endl;
 		radiative_layer.source_up(e_n) = (1.0 - optical_layer.single_scattering_albedo) * computeThermalEmission(optical_layer.planck_function, radiative_layer.optical_thickness, geometry_.mu_uh(e_n));
 		radiative_layer.source_down(e_n) = (1.0 - optical_layer.single_scattering_albedo) * computeThermalEmission(optical_layer.planck_function, radiative_layer.optical_thickness, geometry_.mu_lh(e_n));
 	}
@@ -2729,8 +2703,6 @@ inline RadiativeLayer RadiativeTransferSolver::initializeSurfaceLayer_(const Opt
 
 	double s = geometry_.WMU_lh.sum();
 
-	// std::cout << "s = " << s << std::endl;
-
 	// #pragma omp parallel for
 	for(int e = 0; e < geometry_.Ntheta; e ++)
 	{
@@ -2767,20 +2739,16 @@ inline std::vector<OpticalLayer> RadiativeTransferSolver::setAtmosphericLayerCon
 	}
 
 	std::vector<OpticalLayer> layers(n_layer);
-	// std::cout << n_scattering_angle_ << std::endl;
-
+	
 	for(int i = 0; i < n_layer; ++i)
 	{
-		#pragma omp critical
-		{
-			std::cout << "[RadiativeTransferSolver::setAtmosphericLayerCondition_] Setting atmosphere condition for layer " << i << "." << std::endl;
-		}
+		logger::global().info("RadiativeTransferSolver::setAtmosphericLayerCondition_") << "Setting atmosphere condition for layer " << i << ".";
+		
 		layers[i].is_scattering_species.resize(atmosphere_model.species.size(), false);
 		layers[i].species_absorption_cross_section.resize(atmosphere_model.species.size(), 0.0);
 		layers[i].species_scattering_cross_section.resize(atmosphere_model.species.size(), 0.0);
 		layers[i].species_scattering_phase_function.resize(atmosphere_model.species.size());
 
-		// std::cout << "layer " << i << std::endl;
 		layers[i].enable_atmospheric_emission = atmosphere_model.enable_atmospheric_emission;
 
 		double temperature = atmosphere_model.temperature[i]; // K
@@ -2804,10 +2772,7 @@ inline std::vector<OpticalLayer> RadiativeTransferSolver::setAtmosphericLayerCon
 
 		for(int j = 0; j < atmosphere_model.species.size(); ++j)
 		{
-			#pragma omp critical
-			{
-				std::cout << "[RadiativeTransferSolver::setAtmosphericLayerCondition_] Setting atmosphere condition for species " << j << " in layer " << i << std::endl;
-			}
+			logger::global().info("RadiativeTransferSolver::setAtmosphericLayerCondition_") << "Setting atmosphere condition for species " << j << " in layer " << i << ".";
 			
 			double number_density = atmosphere_model.species[j].vertical_number_density_profile[i];
 			double mixing_ratio = atmosphere_model.species[j].vertical_mixing_ratio_profile[i];
@@ -2823,28 +2788,6 @@ inline std::vector<OpticalLayer> RadiativeTransferSolver::setAtmosphericLayerCon
 				std::vector<std::vector<double>> pf;
 
 				computeMieScatteringSizeDistribution(n_scattering_angle_, wavelength, atmosphere_model.species[j].weight_particle_size_distribution, refractive_index, scattering_cross_section, absorption_cross_section, extinction_cross_section, pf);
-
-				// if(i == 0)
-				// {
-				// 	#pragma omp critical
-				// 	{
-				// 		std::cout << atmosphere_model.species[j].name << std::endl;
-				// 		std::cout << "Scattering cross section: " << scattering_cross_section * scaleUnit("m2", "micron2") << " micron2 " << std::endl;
-				// 		std::cout << "Absorption cross section: " << absorption_cross_section * scaleUnit("m2", "micron2") << " micron2 " << std::endl;
-
-				// 		std::cout << "Size distribution" << std::endl;
-				// 		for(int nr = 0; nr < atmosphere_model.species[j].particle_size_distribution.size(); ++nr)
-				// 		{
-				// 			std::cout << atmosphere_model.species[j].particle_size_distribution[nr][0] << ", " << atmosphere_model.species[j].particle_size_distribution[nr][1] << ", " << atmosphere_model.species[j].weight_particle_size_distribution[nr][1] << std::endl;
-				// 		}
-
-				// 		std::cout << "Phase function" << std::endl;
-				// 		for(int nt = 0; nt < n_scattering_angle_; ++nt)
-				// 		{
-				// 			std::cout << pf[nt][0] << ", " << pf[nt][1] / pf[0][1] << std::endl;
-				// 		}
-				// 	}
-				// }
 
 				double scattering_coefficient = scattering_cross_section * number_density;
 				double absorption_coefficient = absorption_cross_section * number_density;
@@ -2902,28 +2845,18 @@ inline std::vector<OpticalLayer> RadiativeTransferSolver::setAtmosphericLayerCon
 				{
 					if(atmosphere_model.species[j].is_hitran)
 					{
-						// std::cout << atmosphere_model.species[j].lines.size() << std::endl;
 						double absorption_cross_section = 0.0;
 						for(int k = 0; k < atmosphere_model.species[j].lines.size(); ++k)
 						{
-							// std::cout << k << std::endl;
-							// std::cout << wavenumber << ", " << temperature << ", " << pressure * mixing_ratio << ", " << pressure << std::endl;
-							// std::cout << atmosphere_model.species[j].isotopologue.global_id << std::endl;
-							// std::cout << atmosphere_model.diluent.air << ", " << atmosphere_model.diluent.CO2 << ", " << atmosphere_model.diluent.H2 << ", " << atmosphere_model.diluent.H2O << ", " << atmosphere_model.diluent.He << std::endl;
-							// std::cout << atmosphere_model.species[j].lines[k].computeCrossSection(wavenumber, temperature, pressure * mixing_ratio, pressure, atmosphere_model.species[j].isotopologue, atmosphere_model.diluent) << std::endl;
-
 							absorption_cross_section += atmosphere_model.species[j].lines[k].computeCrossSection(wavenumber, temperature, pressure * mixing_ratio, pressure, atmosphere_model.species[j].isotopologue, atmosphere_model.diluent);
 						}
 						double absorption_coefficient = absorption_cross_section * number_density; // m-1 = m2 / molecule * molecule / m3
 						layers[i].absorption_coefficient += absorption_coefficient;
-						// std::cout << "thru" << std::endl;
 						layers[i].species_absorption_cross_section[j] = absorption_cross_section;
 					}
 					else
 					{
-						// double absorption_cross_section = interpolateTableLinear(spectral, atmosphere_model.species[j].absorption_cross_section_spectrum)[0];
 						double absorption_cross_section = atmosphere_model.species[j].absorption_cross_section.cross_section(spectral, temperature);
-						// std::cout << absorption_cross_section << " m2" << std::endl;
 						double absorption_coefficient = absorption_cross_section * number_density; // m-1 = m2 / molecule * molecule / m3
 						layers[i].absorption_coefficient += absorption_coefficient;
 						layers[i].species_absorption_cross_section[j] = absorption_cross_section;
@@ -2936,19 +2869,6 @@ inline std::vector<OpticalLayer> RadiativeTransferSolver::setAtmosphericLayerCon
 		layers[i].single_scattering_albedo = layers[i].scattering_coefficient / (layers[i].scattering_coefficient + layers[i].absorption_coefficient);
 		normalizeScatteringPhaseFunction(layers[i].scattering_phase_function);
 		layers[i].asymmetry_parameter = computeAsymmetryParameter(layers[i].scattering_phase_function);
-
-		// #pragma omp critical
-		// {
-		// 	std::cout << "Layer " << i << std::endl;
-		// 	std::cout << "Single scattering albedo: " << layers[i].single_scattering_albedo << std::endl;
-		// 	std::cout << "Asymmetry parameter: " << layers[i].asymmetry_parameter << std::endl;
-
-		// 	std::cout << "Phase function" << std::endl;
-		// 	for(int nt = 0; nt < n_scattering_angle_; ++nt)
-		// 	{
-		// 		std::cout << layers[i].scattering_phase_function[nt][0] << ", " << layers[i].scattering_phase_function[nt][1] / layers[i].scattering_phase_function[0][1] << std::endl;
-		// 	}
-		// }
 	}
 
 	return layers;
@@ -3059,6 +2979,7 @@ inline void ArrheniusCrossSectionModel::loadNetCDF(const std::string& filename, 
 			netCDF::NcVar var = dataFile.getVar(name);
 			if(var.isNull())
 			{
+				logger::global().fatal("ArrheniusCrossSectionModel::loadNetCDF") << "NetCDF Variable '" + name + "' not found in " + filename;
 				throw std::runtime_error("NetCDF Variable '" + name + "' not found in " + filename);
 			}
 			return var;
@@ -3080,7 +3001,8 @@ inline void ArrheniusCrossSectionModel::loadNetCDF(const std::string& filename, 
 		}
 		catch(...)
 		{
-			std::cout << "[Warning] 'units' missing for " << var_name_spectral << ". Assuming " << unit_target_spectral << "." << std::endl;
+			logger::global().info("ArrheniusCrossSectionModel::loadNetCDF") << "Unit missing for " << var_name_spectral << ". Assuming " << unit_target_spectral << ".";
+
 			source_unit_spec = unit_target_spectral;
 		}
 
@@ -3092,7 +3014,7 @@ inline void ArrheniusCrossSectionModel::loadNetCDF(const std::string& filename, 
 		}
 		catch(...)
 		{
-			std::cout << "[Warning] 'units' missing for " << var_name_temperature << ". Assuming " << unit_target_temperature << "." << std::endl;
+			logger::global().info("ArrheniusCrossSectionModel::loadNetCDF") << "Unit missing for " << var_name_temperature << ". Assuming " << unit_target_temperature << ".";
 			source_unit_temperature = unit_target_temperature;
 		}
 
@@ -3104,7 +3026,7 @@ inline void ArrheniusCrossSectionModel::loadNetCDF(const std::string& filename, 
 		}
 		catch(...)
 		{
-			std::cout << "[Warning] 'units' missing for " << var_name_cross_section << ". Assuming " << unit_target_cross_section << "." << std::endl;
+			logger::global().info("ArrheniusCrossSectionModel::loadNetCDF") << "Unit missing for " << var_name_cross_section << ". Assuming " << unit_target_cross_section << ".";
 			source_unit_cross_section = unit_target_cross_section;
 		}
 
@@ -3235,6 +3157,7 @@ inline void ArrheniusCrossSectionModel::loadNetCDF(const std::string& filename, 
 	}
 	catch(const netCDF::exceptions::NcException& e)
 	{
+		logger::global().fatal("ArrheniusCrossSectionModel::loadNetCDF") << "NetCDF Error in " + filename + ": " + std::string(e.what());
 		throw std::runtime_error("NetCDF Error in " + filename + ": " + std::string(e.what()));
 	}
 }

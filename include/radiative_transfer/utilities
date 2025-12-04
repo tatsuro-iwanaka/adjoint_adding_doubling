@@ -96,6 +96,7 @@ inline UnitInfo getUnitInfo(std::string unit_input)
 	if (u == "ppb") return { UnitDim::Dimensionless, 1.0E-9 };
 	if (u == "ppt") return { UnitDim::Dimensionless, 1.0E-12 };
 	
+	logger::global().fatal("getUnitInfo") << "Unknown unit: " + unit_input;
 	throw std::runtime_error("Unknown unit: " + unit_input);
 }
 
@@ -106,6 +107,7 @@ inline double scaleUnit(std::string unit_input, std::string unit_output)
 
 	if (inInfo.dim != outInfo.dim)
 	{
+		logger::global().fatal("scaleUnit") << "Unit dimension mismatch: cannot convert from `" + unit_input + "` to `" + unit_output + "`";
 		throw std::runtime_error("Unit dimension mismatch: cannot convert from `" + unit_input + "` to `" + unit_output + "`");
 	}
 	// input→SI→output の合成倍率
@@ -183,6 +185,7 @@ inline std::vector<std::vector<double>> computeGaussLegendreQuadratureNodeWeight
 	
 	if (es.info() != Eigen::Success)
 	{
+		logger::global().fatal("omputeGaussLegendreQuadratureNodeWeight") << "Eigenvalue solution failed for Legendre Jacobi matrix.";
 		throw std::runtime_error("Eigenvalue solution failed for Legendre Jacobi matrix.");
 	}
 
@@ -211,6 +214,7 @@ inline std::vector<std::vector<double>> computeGaussHermiteQuadratureNodeWeight(
 {
 	if (degree <= 0)
 	{
+		logger::global().fatal("computeGaussHermiteQuadratureNodeWeight") << "Degree must be positive for Gaussian-Hermite quadrature.";
 		throw std::runtime_error("Degree must be positive for Gaussian-Hermite quadrature.");
 	}
 	
@@ -232,6 +236,7 @@ inline std::vector<std::vector<double>> computeGaussHermiteQuadratureNodeWeight(
 	if (es.info() != Eigen::Success)
 	{
 		// 固有値計算の失敗
+		logger::global().fatal("computeGaussHermiteQuadratureNodeWeight") << "Eigenvalue solution failed for Hermite Jacobi matrix.";
 		throw std::runtime_error("Eigenvalue solution failed for Hermite Jacobi matrix.");
 	}
 
@@ -265,6 +270,7 @@ inline std::vector<std::vector<double>> computeGaussLaguerreQuadratureNodeWeight
 {
 	if (degree <= 0)
 	{
+		logger::global().fatal("computeGaussLaguerreQuadratureNodeWeight") << "Degree must be positive for Gaussian-Laguerre quadrature.";
 		throw std::runtime_error("Degree must be positive for Gaussian-Laguerre quadrature.");
 	}
 	
@@ -294,6 +300,7 @@ inline std::vector<std::vector<double>> computeGaussLaguerreQuadratureNodeWeight
 	
 	if (es.info() != Eigen::Success)
 	{
+		logger::global().fatal("computeGaussLaguerreQuadratureNodeWeight") << "Eigenvalue solution failed for Laguerre Jacobi matrix.";
 		throw std::runtime_error("Eigenvalue solution failed for Laguerre Jacobi matrix.");
 	}
 
@@ -323,6 +330,7 @@ inline std::vector<std::vector<double>> computeGeneralizedGaussLaguerreQuadratur
 {
 	if (degree <= 0)
 	{
+		logger::global().fatal("computeGeneralizedGaussLaguerreQuadratureNodeWeight") << "Degree must be positive for Gaussian-Laguerre quadrature.";
 		throw std::runtime_error("Degree must be positive for Gaussian-Laguerre quadrature.");
 	}
 	
@@ -352,6 +360,7 @@ inline std::vector<std::vector<double>> computeGeneralizedGaussLaguerreQuadratur
 	
 	if (es.info() != Eigen::Success)
 	{
+		logger::global().fatal("computeGeneralizedGaussLaguerreQuadratureNodeWeight") << "Eigenvalue solution failed for Generalized Laguerre Jacobi matrix.";
 		throw std::runtime_error("Eigenvalue solution failed for Generalized Laguerre Jacobi matrix.");
 	}
 

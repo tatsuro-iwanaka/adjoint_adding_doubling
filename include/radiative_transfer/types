@@ -9,6 +9,7 @@
 
 #include "constants"
 #include "hitran"
+#include <logger>
 
 namespace radiative_transfer
 {
@@ -312,7 +313,7 @@ struct Species
 		std::vector<hitran::Line> lines;
 };
 
-struct OpticalLayer
+class OpticalLayer
 {
 	public:
 		double planck_function; // IR計算用 プランク関数
@@ -336,9 +337,11 @@ struct OpticalLayer
 		std::vector<std::vector<std::vector<double>>> species_scattering_phase_function; // species, scattering_angle
 		std::vector<double> species_absorption_cross_section; // species
 		std::vector<double> species_scattering_cross_section; // species
+
+		void clear(void);
 };
 
-struct RadiativeLayer
+class RadiativeLayer
 {
 	public:
 		std::vector<Eigen::MatrixXd> reflectance_m_top_cos;
@@ -364,6 +367,8 @@ struct RadiativeLayer
 		// std::vector<std::vector<std::vector<double>>> transmittance_bottom;
 
 		double optical_thickness; //dimensionless
+
+		void clear(void);
 };
 
 struct AtmosphereModel
@@ -417,7 +422,7 @@ class Configuration
 		{
 			std::optional<std::string> simulation_name;
 			std::optional<std::string> directory_name;
-			std::optional<std::string> logfile_name;
+			// std::optional<std::string> logfile_name;
 			std::optional<std::string> result_name;
 
 			std::optional<int> n_parallel;
@@ -666,7 +671,7 @@ struct SimulationInformation
 		std::string simulation_name;
 		std::string directory_name;
 		std::string result_name;
-		std::string logfile_name;
+		// std::string logfile_name;
 
 		int n_scattering_angle;
 		int n_parallel;
@@ -837,6 +842,8 @@ class RadiativeTransfer
 		RadiativeTransferResult result_;
 
 		std::string config_filename_;
+
+		// logger::Log log;
 		
 	public:
 		RadiativeTransfer();

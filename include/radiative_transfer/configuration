@@ -22,19 +22,12 @@ inline Configuration ConfigurationLoader::load(const std::string& filename)
 	auto kv = importYaml_(filename);
 
 	configuration.simulation = loadSimulation_(kv);
-	// std::cout << "Simulation imported." << std::endl;
 	configuration.spectral_coordinate = loadSpectralCoordinate_(kv);
-	// std::cout << "Spectral imported." << std::endl;
 	configuration.instrument = loadInstrument_(kv);
-	// std::cout << "Instrument imported." << std::endl;
 	configuration.geometry = loadGeometry_(kv);
-	// std::cout << "Geometry imported." << std::endl;
 	configuration.delta_m = loadDeltaM_(kv);
-	// std::cout << "Delta-M imported." << std::endl;
 	configuration.surface = loadSurface_(kv);
-	// std::cout << "Surface imported." << std::endl;
 	configuration.atmosphere = loadAtmosphere_(kv);
-	// std::cout << "Atmosphere imported." << std::endl;
 
 	return configuration;
 }
@@ -43,7 +36,11 @@ inline Configuration ConfigurationLoader::load(const std::string& filename)
 inline std::map<std::string, std::string> ConfigurationLoader::importYaml_(const std::string& filename)
 {
 	std::ifstream ifs(filename);
-	if (!ifs) throw std::runtime_error("Cannot open " + filename);
+	if (!ifs)
+	{
+		logger::global().fatal("ConfigurationLoader::importYaml_") << "Cannot open " + filename;
+		throw std::runtime_error("Cannot open " + filename);
+	}
 
 	auto trim = [](std::string s) -> std::string
 	{
@@ -115,10 +112,16 @@ inline std::map<std::string, std::string> ConfigurationLoader::importYaml_(const
 		int nsp = 0;
 		while (nsp < (int)raw.size() && raw[nsp]==' ') ++nsp;
 		if (nsp % INDENT != 0)
+		{
+			logger::global().fatal("ConfigurationLoader::importYaml_") << "Indent error at line " + std::to_string(line_no);
 			throw std::runtime_error("Indent error at line " + std::to_string(line_no));
+		}
 		int depth = nsp / INDENT;
 		if (depth > prev_depth + 1)
+		{
+			logger::global().fatal("ConfigurationLoader::importYaml_") << "Nesting error at line " + std::to_string(line_no);
 			throw std::runtime_error("Nesting error at line " + std::to_string(line_no));
+		}
 		prev_depth = depth;
 
 		// 本文
@@ -129,6 +132,7 @@ inline std::map<std::string, std::string> ConfigurationLoader::importYaml_(const
 		{
 			if (stack.empty())
 			{
+				logger::global().fatal("ConfigurationLoader::importYaml_") << "Sequence item without parent at line " + std::to_string(line_no);
 				throw std::runtime_error("Sequence item without parent at line " + std::to_string(line_no));
 			}
 		
@@ -167,7 +171,10 @@ inline std::map<std::string, std::string> ConfigurationLoader::importYaml_(const
 		// key: ... 解析
 		auto pc = body.find(':');
 		if (pc == std::string::npos)
+		{
+			logger::global().fatal("ConfigurationLoader::importYaml_") << "Syntax error at line " + std::to_string(line_no);
 			throw std::runtime_error("Syntax error at line " + std::to_string(line_no));
+		}
 		std::string key = trim(body.substr(0,pc));
 		std::string val = trim(body.substr(pc+1));
 
@@ -219,10 +226,22 @@ inline Configuration::Simulation ConfigurationLoader::loadSimulation_(const std:
 
 	std::string prefix = "simulation.";
 
+	std::optional<std::string> logfile_name = getOptionalString_(kv, prefix + "logfile");
+	std::optional<std::string> logfile_warning;
+	if(!logfile_name.has_value())
+	{
+		logfile_name = "log.txt";
+		logfile_warning = "Log file name was not specified. Automatically set to '" + logfile_name.value() + "'.";
+	}
+	logger::global().addSink(logfile_name.value(), false);
+	logger::global().setMinLevel(logger::Level::Info);
+	if(logfile_warning.has_value())
+	{
+		logger::global().warn("Configuration::validateConfiguration") << logfile_warning.value();
+	}
 	simulation.simulation_name = getOptionalString_(kv, prefix + "name");
 	simulation.n_parallel = getOptionalInt_(kv, prefix + "n_parallel");
 	simulation.directory_name = getOptionalString_(kv, prefix + "directory");
-	simulation.logfile_name = getOptionalString_(kv, prefix + "logfile");
 	simulation.result_name = getOptionalString_(kv, prefix + "result");
 	simulation.n_scattering_angle = getOptionalInt_(kv, prefix + "n_scattering_angle");
 	simulation.tau_initial_layer = getOptionalDouble_(kv, prefix + "tau_initial_layer");
@@ -331,7 +350,6 @@ inline Configuration::Atmosphere ConfigurationLoader::loadAtmosphere_(const std:
 		atmosphere.is_same_temperature_layering_atmosphere = hasKey_(kv, base + "table.0") && !hasKey_(kv, base + "table.0.1"); // tableがlayer*2でなければzのレイヤリングとは異なる
 		atmosphere.vertical_temperature_profile = parseEnum_(getOptionalString_(kv, base + "vertical_profile"), map_vertical_temperature_profile);
 		atmosphere.vertical_temperature_interpolation = parseEnum_(getOptionalString_(kv, base + "interpolation"), map_vertical_profile_interpolation);
-		// std::cout << atmosphere.is_same_temperature_layering_atmosphere << std::endl;
 		int n_tics = countArrayEntries_(kv, base + "table");
 
 		if(atmosphere.is_same_temperature_layering_atmosphere)
@@ -341,7 +359,6 @@ inline Configuration::Atmosphere ConfigurationLoader::loadAtmosphere_(const std:
 			for(int i = 0; i < n_tics; i ++)
 			{
 				atmosphere.temperature_profile.push_back({getRequiredDouble_(kv, base + "table." + std::to_string(i))});
-				// std::cout << atmosphere.temperature_profile[atmosphere.temperature_profile.size() - 1][0] << std::endl;
 			}
 
 		}
@@ -717,6 +734,7 @@ inline std::string ConfigurationLoader::getRequiredString_(const std::map<std::s
 
 	if (it == kv.end())
 	{
+		logger::global().fatal("ConfigurationLoader::getRequiredString_") << "Missing key: " + key;
 		throw std::runtime_error("Missing key: " + key);
 	}
 
@@ -729,6 +747,7 @@ inline int ConfigurationLoader::getRequiredInt_(const std::map<std::string, std:
 
 	if (it == kv.end())
 	{
+		logger::global().fatal("ConfigurationLoader::getRequiredInt_") << "Missing key: " + key;
 		throw std::runtime_error("Missing key: " + key);
 	}
 
@@ -741,6 +760,7 @@ inline double ConfigurationLoader::getRequiredDouble_(const std::map<std::string
 
 	if (it == kv.end())
 	{
+		logger::global().fatal("ConfigurationLoader::getRequiredDouble_") << "Missing key: " + key;
 		throw std::runtime_error("Missing key: " + key);
 	}
 
@@ -753,6 +773,7 @@ inline bool ConfigurationLoader::getRequiredBool_(const std::map<std::string, st
 
 	if (it == kv.end())
 	{
+		logger::global().fatal("ConfigurationLoader::getRequiredBool_") <<"Missing key: " + key;
 		throw std::runtime_error("Missing key: " + key);
 	}
 
@@ -762,6 +783,7 @@ inline bool ConfigurationLoader::getRequiredBool_(const std::map<std::string, st
 	if (s == "false" || s == "no"  || s == "off") return false;
 
 	// ここまで来たら値は存在するが真偽値として解釈不能
+	logger::global().fatal("ConfigurationLoader::getRequiredBool_") << "Invalid boolean value for key '" + key + "': '" + it->second + "'";
 	throw std::runtime_error("Invalid boolean value for key '" + key + "': '" + it->second + "'");
 }
 
@@ -802,6 +824,8 @@ inline bool ConfigurationLoader::getOptionalBool_(const std::map<std::string, st
 	if (s == "false" || s == "no"  || s == "off") return false;
 
 	// ここまで来たら値は存在するが真偽値として解釈不能
+	
+	logger::global().fatal("ConfigurationLoader::getOptionalBool_") << "Invalid boolean value for key '" + key + "': '" + it->second + "'";
 	throw std::runtime_error("Invalid boolean value for key '" + key + "': '" + it->second + "'");
 }
 
@@ -884,6 +908,7 @@ inline std::optional<bool> ConfigurationLoader::getOptionalBool_(const std::map<
 		}
 		else
 		{
+			logger::global().fatal("ConfigurationLoader::getOptionalBool_") << "Invalid boolean value for key '" + key + "': '" + it->second + "'";
 			throw std::runtime_error("Invalid boolean value for key '" + key + "': '" + it->second + "'");
 		}
 	}
@@ -971,6 +996,7 @@ template<typename EnumT> inline std::optional<EnumT> ConfigurationLoader::parseE
 	}
 
 	// 5. 見つからなければ例外を投げる
+	logger::global().fatal("ConfigurationLoader::parseEnum_") << "Unknown TypeName: " + s.value();
 	throw std::runtime_error("Unknown TypeName: " + s.value());
 }
 
@@ -980,7 +1006,7 @@ inline void Configuration::validateConfiguration(void)
 	if(!simulation.simulation_name.has_value())
 	{
 		simulation.simulation_name = "untitled";
-		std::cout << "[Configuration::validateConfiguration] Simulation name was not specified. Automatically set to 'untitled'." << std::endl;
+		logger::global().warn("Configuration::validateConfiguration") << "Simulation name was not specified. Automatically set to '" << simulation.simulation_name.value() << "'.";
 	}
 	if(!simulation.directory_name.has_value())
 	{
@@ -989,22 +1015,17 @@ inline void Configuration::validateConfiguration(void)
 		{
 			simulation.directory_name = simulation.directory_name.value() + "/";
 		}
-		std::cout << "[Configuration::validateConfiguration] Working directroy was not specified. Automatically set to current directory." << std::endl;
-	}
-	if(!simulation.logfile_name.has_value())
-	{
-		simulation.logfile_name = "log.txt";
-		std::cout << "[Configuration::validateConfiguration] Log file name was not specified. Automatically set to 'log.txt'." << std::endl;
+		logger::global().warn("Configuration::validateConfiguration") << "Working directroy was not specified. Automatically set to current directory.";
 	}
 	if(!simulation.result_name.has_value())
 	{
 		simulation.result_name = simulation.simulation_name.value() + ".nc";
-		std::cout << "[Configuration::validateConfiguration] Result file name was not specified. Automatically set to '" << simulation.simulation_name.value() << ".nc'." << std::endl;
+		logger::global().warn("Configuration::validateConfiguration") << "Result file name was not specified. Automatically set to '" << simulation.simulation_name.value() << ".nc'.";
 	}
 	if(!simulation.n_parallel.has_value())
 	{
 		simulation.n_parallel = 1;
-		std::cout << "[Configuration::validateConfiguration] n_parallel was not specified. Automatically set to 1." << std::endl;
+		logger::global().warn("Configuration::validateConfiguration") << "n_parallel was not specified. Automatically set to " << simulation.n_parallel.value() << ".";
 	}
 	else
 	{
@@ -1012,45 +1033,46 @@ inline void Configuration::validateConfiguration(void)
 		if(simulation.n_parallel.value() > max_threads)
 		{
 			simulation.n_parallel = max_threads;
-			std::cout << "[Configuration::validateConfiguration] n_parallel exceeds max_threads. Automatically set to " << max_threads << "." << std::endl;
+			logger::global().warn("Configuration::validateConfiguration") << "n_parallel exceeds max_threads. Automatically set to " << max_threads << ".";
 		}
 	}
 	if(!simulation.n_scattering_angle.has_value())
 	{
 		simulation.n_scattering_angle = 1001;
-		std::cout << "[Configuration::validateConfiguration] n_scattering_angle was not specified. Automatically set to 1001." << std::endl;
+		logger::global().warn("Configuration::validateConfiguration") << "n_scattering_angle was not specified. Automatically set to " << simulation.n_scattering_angle.value() << ".";
 	}
 	if(!simulation.tau_initial_layer.has_value())
 	{
 		simulation.tau_initial_layer = 1.0E-8;
-		std::cout << "[Configuration::validateConfiguration] tau_initial_layer was not specified. Automatically set to 1.0E-8." << std::endl;
+		logger::global().warn("Configuration::validateConfiguration") << "tau_initial_layer was not specified. Automatically set to " << simulation.tau_initial_layer.value() << ".";
 	}
 	if(!simulation.enable_atmospheric_emission.has_value())
 	{
 		simulation.enable_atmospheric_emission = false;
-		std::cout << "[Configuration::validateConfiguration] enable_atmospheric_emission was not specified. Automatically set to false." << std::endl;
+		logger::global().warn("Configuration::validateConfiguration") << "enable_atmospheric_emission was not specified. Automatically set to false.";
 	}
 
 	//Geometry
 	if(!geometry.grid_type.has_value())
 	{
 		geometry.grid_type = GridType::GaussRadau;
-		std::cout << "[Configuration::validateConfiguration] grid_type was not specified. Automatically set to Gauss-Radau." << std::endl;
+		logger::global().warn("Configuration::validateConfiguration") << "grid_type was not specified. Automatically set to Gauss-Radau.";
 	}
 	if(!geometry.n_theta.has_value())
 	{
+		logger::global().fatal("Configuration::validateConfiguration") << "n_theta was not specified.";
 		throw std::runtime_error("[Configuration::validateConfiguration] n_theta was not specified.");
 	}
 	if(!geometry.n_phi.has_value() && !geometry.n_mode.has_value())
 	{
-		std::cout << "[Configuration::validateConfiguration] n_phi and n_mode were not specified. Automatically set." << std::endl;
+		logger::global().warn("Configuration::validateConfiguration") << "n_phi and n_mode were not specified. Automatically set.";
 	}
 
 	//DeltaM
 	if(!delta_m.delta_approximation_type.has_value())
 	{
 		delta_m.delta_approximation_type = DeltaApproximationType::Disable;
-		std::cout << "[Configuration::validateConfiguration] delta_approximation_type was not specified. Automatically set to disable." << std::endl;
+		logger::global().warn("Configuration::validateConfiguration") << "delta_approximation_type was not specified. Automatically set to disable.";
 	}
 	else
 	{
@@ -1058,6 +1080,7 @@ inline void Configuration::validateConfiguration(void)
 		{
 			if(!delta_m.f_target.has_value())
 			{
+				logger::global().fatal("Configuration::validateConfiguration") << "f_target was not specified.";
 				throw std::runtime_error("[Configuration::validateConfiguration] f_target was not specified.");
 			}
 		}
@@ -1065,6 +1088,7 @@ inline void Configuration::validateConfiguration(void)
 		{
 			if(!delta_m.fwhm_ratio.has_value())
 			{
+				logger::global().fatal("Configuration::validateConfiguration") << "fwhm_ratio was not specified.";
 				throw std::runtime_error("[Configuration::validateConfiguration] fwhm_ratio was not specified.");
 			}
 		}
@@ -1079,6 +1103,7 @@ inline void Configuration::validateConfiguration(void)
 	// spectrum + instrument
 	if(!spectral_coordinate.spectral_coordinate_dimension.has_value() && !spectral_coordinate.unit.has_value())
 	{
+		logger::global().fatal("Configuration::validateConfiguration") << "Spectral dimension not automatically determined. Specify at least dimension or unit.";
 		throw std::runtime_error("[Configuration::validateConfiguration] Spectral dimension not automatically determined. Specify at least dimension or unit.");
 	}
 	else if(!spectral_coordinate.spectral_coordinate_dimension.has_value() && spectral_coordinate.unit.has_value())
@@ -1086,12 +1111,12 @@ inline void Configuration::validateConfiguration(void)
 		if(getUnitInfo(spectral_coordinate.unit.value()).dim == UnitDim::Length)
 		{
 			spectral_coordinate.spectral_coordinate_dimension = SpectralCoordinateDimension::Wavelength;
-			std::cout << "[Configuration::validateConfiguration] Spectral dimension was not specified. Automatically set to wavelength." << std::endl;
+			logger::global().warn("Configuration::validateConfiguration") << "Spectral dimension was not specified. Automatically set to wavelength.";
 		}
 		else if(getUnitInfo(spectral_coordinate.unit.value()).dim == UnitDim::Wavenumber)
 		{
 			spectral_coordinate.spectral_coordinate_dimension = SpectralCoordinateDimension::Wavenumber;
-			std::cout << "[Configuration::validateConfiguration] Spectral dimension was not specified. Automatically set to wavenumber." << std::endl;
+			logger::global().warn("Configuration::validateConfiguration") << "Spectral dimension was not specified. Automatically set to wavenumber.";
 		}
 	}
 	else if(spectral_coordinate.spectral_coordinate_dimension.has_value() && !spectral_coordinate.unit.has_value())
@@ -1099,22 +1124,24 @@ inline void Configuration::validateConfiguration(void)
 		if(spectral_coordinate.spectral_coordinate_dimension == SpectralCoordinateDimension::Wavenumber)
 		{
 			spectral_coordinate.unit = "m-1";
-			std::cout << "[Configuration::validateConfiguration] Spectral unit was not specified. Automatically set to m-1." << std::endl;
+			logger::global().warn("Configuration::validateConfiguration") << "Spectral unit was not specified. Automatically set to " << spectral_coordinate.unit.value() << ".";
 		}
 		if(spectral_coordinate.spectral_coordinate_dimension == SpectralCoordinateDimension::Wavelength)
 		{
 			spectral_coordinate.unit = "m";
-			std::cout << "[Configuration::validateConfiguration] Spectral unit was not specified. Automatically set to m." << std::endl;
+			logger::global().warn("Configuration::validateConfiguration") << "Spectral unit was not specified. Automatically set to " << spectral_coordinate.unit.value() << ".";
 		}
 	}
 	if(!spectral_coordinate.spectral_coordinate_type.has_value())
 	{
+		logger::global().fatal("Configuration::validateConfiguration") << "Spectral coordinate type was not specified.";
 		throw std::runtime_error("[Configuration::validateConfiguration] Spectral coordinate type was not specified.");
 	}
 	else if(spectral_coordinate.spectral_coordinate_type.value() == SpectralCoordinateType::Monochrome)
 	{
 		if(!spectral_coordinate.mono.has_value())
 		{
+			logger::global().fatal("Configuration::validateConfiguration") << "Wavenumber or wavelength were not specified for monochrome calculation.";
 			throw std::runtime_error("[Configuration::validateConfiguration] Wavenumber or wavelength were not specified for monochrome calculation.");
 		}
 	}
@@ -1122,11 +1149,13 @@ inline void Configuration::validateConfiguration(void)
 	{
 		if(!spectral_coordinate.min.has_value() || !spectral_coordinate.max.has_value())
 		{
+			logger::global().fatal("Configuration::validateConfiguration") << "Spectral range was not specified.";
 			throw std::runtime_error("[Configuration::validateConfiguration] Spectral range was not specified.");
 		}
 
 		if(spectral_coordinate.min.value() >= spectral_coordinate.max.value())
 		{
+			logger::global().fatal("Configuration::validateConfiguration") << "Spectral range error (min >= max).";
 			throw std::runtime_error("[Configuration::validateConfiguration] Spectral range error (min >= max).");
 		}
 		
@@ -1136,10 +1165,12 @@ inline void Configuration::validateConfiguration(void)
 
 			if(!spectral_coordinate.n_spectral.has_value() && !spectral_coordinate.increment.has_value())
 			{
+				logger::global().fatal("Configuration::validateConfiguration") << "Spectral increment was not specified.";
 				throw std::runtime_error("[Configuration::validateConfiguration] Spectral increment was not specified.");
 			}
 			else if(spectral_coordinate.n_spectral.has_value() && spectral_coordinate.increment.has_value())
 			{
+				logger::global().fatal("Configuration::validateConfiguration") << "Spectral increment was over specified.";
 				throw std::runtime_error("[Configuration::validateConfiguration] Spectral increment was over specified.");
 			}
 			else
@@ -1148,6 +1179,7 @@ inline void Configuration::validateConfiguration(void)
 				{
 					if(spectral_coordinate.max.value() - spectral_coordinate.min.value() < spectral_coordinate.increment.value())
 					{
+						logger::global().fatal("Configuration::validateConfiguration") << "Spectral range error (width < increment).";
 						throw std::runtime_error("[Configuration::validateConfiguration] Spectral range error (width < increment).");
 					}
 				}
@@ -1156,7 +1188,7 @@ inline void Configuration::validateConfiguration(void)
 					if(spectral_coordinate.n_spectral < 2)
 					{
 						spectral_coordinate.n_spectral = 2;
-						std::cout << "[Configuration::validateConfiguration] n_spectral is too few. Automatically set to 2 (min and max)." << std::endl;
+						logger::global().warn("Configuration::validateConfiguration") << "n_spectral is too few. Automatically set to 2 (min and max).";
 					}
 				}
 			}
@@ -1166,40 +1198,43 @@ inline void Configuration::validateConfiguration(void)
 			if(!instrument.over_sampling_count.has_value())
 			{
 				instrument.over_sampling_count = 3;
-				std::cout << "[Configuration::validateConfiguration] over_sampling_count was not specified. Automatically set to " << instrument.over_sampling_count.value() << "." << std::endl;
+				logger::global().warn("Configuration::validateConfiguration") << "over_sampling_count was not specified. Automatically set to " << instrument.over_sampling_count.value() << ".";
 			}
 
 			if(instrument.convolution_kernel_type.value() == InstrumentFunctionType::Gauss)
 			{
 				if(!instrument.kernel_sigma.has_value())
 				{
+					logger::global().fatal("Configuration::validateConfiguration") << "Gaussian sigma was not specified for convolution kernel.";
 					throw std::runtime_error("[Configuration::validateConfiguration] Gaussian sigma was not specified for convolution kernel.");
 				}
 				if(instrument.kernel_width.has_value())
 				{
 					instrument.kernel_width.reset();
-					std::cout << "[Configuration::validateConfiguration] Rectangular width was ignored for gaussian spectrum convolution kernel." << std::endl;
+					logger::global().warn("Configuration::validateConfiguration") << "Rectangular width was ignored for gaussian spectrum convolution kernel.";
 				}
 				if(!instrument.kernel_cut_off_sigma.has_value())
 				{
 					instrument.kernel_cut_off_sigma = 3.0;
-					std::cout <<  "[Configuration::validateConfiguration] Cutoff sigma of Gaussian convolution kernel was not specified. Automatically set to " << instrument.kernel_cut_off_sigma.value() << "." << std::endl;
+					std::cout <<  "[Configuration::validateConfiguration] Cutoff sigma of Gaussian convolution kernel was not specified. Automatically set to " << instrument.kernel_cut_off_sigma.value() << ".";
 				}
 			}
 			else if(instrument.convolution_kernel_type.value() == InstrumentFunctionType::Rectangle)
 			{
 				if(!instrument.kernel_width.has_value())
 				{
+					logger::global().fatal("Configuration::validateConfiguration") << "Rectangular width was not specified for convolution kernel.";
 					throw std::runtime_error("[Configuration::validateConfiguration] Rectangular width was not specified for convolution kernel.");
 				}
 				if(instrument.kernel_sigma.has_value())
 				{
 					instrument.kernel_width.reset();
-					std::cout << "[Configuration::validateConfiguration] Gaussian sigma was ignored for rectangular spectrum convolution kernel." << std::endl;
+					logger::global().warn("Configuration::validateConfiguration") << "Gaussian sigma was ignored for rectangular spectrum convolution kernel.";
 				}
 			}
 			else if(instrument.convolution_kernel_type.value() == InstrumentFunctionType::External)
 			{
+				logger::global().fatal("Configuration::validateConfiguration") << "External was not currently supported for spectrum convolution kernel.";
 				throw std::runtime_error("[Configuration::validateConfiguration] External was not currently supported for spectrum convolution kernel.");
 			} 
 		}
@@ -1208,6 +1243,7 @@ inline void Configuration::validateConfiguration(void)
 	{
 		if(!instrument.filter_function_type.has_value())
 		{
+			logger::global().fatal("Configuration::validateConfiguration") << "Bandpass filter was not specified for bandpass calculation.";
 			throw std::runtime_error("[Configuration::validateConfiguration] Bandpass filter was not specified for bandpass calculation.");
 		}
 		else 
@@ -1216,6 +1252,7 @@ inline void Configuration::validateConfiguration(void)
 			{
 				if(!instrument.filter_center.has_value())
 				{
+					logger::global().fatal("Configuration::validateConfiguration") << "Delta center was not specified for filter function.";
 					throw std::runtime_error("[Configuration::validateConfiguration] Delta center was not specified for filter function.");
 				}
 			}
@@ -1223,26 +1260,30 @@ inline void Configuration::validateConfiguration(void)
 			{
 				if(!instrument.filter_sigma.has_value())
 				{
+					logger::global().fatal("Configuration::validateConfiguration") << "Gaussian sigma was not specified for filter function.";
 					throw std::runtime_error("[Configuration::validateConfiguration] Gaussian sigma was not specified for filter function.");
 				}
 				if(!instrument.filter_center.has_value())
 				{
+					logger::global().fatal("Configuration::validateConfiguration") << "Gaussian center was not specified for filter function.";
 					throw std::runtime_error("[Configuration::validateConfiguration] Gaussian center was not specified for filter function.");
 				}
 				if(!instrument.filter_cut_off_sigma.has_value())
 				{
 					instrument.filter_cut_off_sigma = 3.0;
-					std::cout <<  "[Configuration::validateConfiguration] Cutoff sigma of Gaussian filter function was not specified. Automatically set to " << instrument.filter_cut_off_sigma.value() << "." << std::endl;
+					std::cout <<  "[Configuration::validateConfiguration] Cutoff sigma of Gaussian filter function was not specified. Automatically set to " << instrument.filter_cut_off_sigma.value() << ".";
 				}
 			}
 			else if(instrument.filter_function_type.value() == InstrumentFunctionType::Rectangle)
 			{
 				if(!instrument.filter_width.has_value())
 				{
+					logger::global().fatal("Configuration::validateConfiguration") << "Rectangular width was not specified for filter function.";
 					throw std::runtime_error("[Configuration::validateConfiguration] Rectangular width was not specified for filter function.");
 				}
 				if(!instrument.filter_center.has_value())
 				{
+					logger::global().fatal("Configuration::validateConfiguration") << "Rectangular center was not specified for filter function.";
 					throw std::runtime_error("[Configuration::validateConfiguration] Rectangular center was not specified for filter function.");
 				}
 			}
@@ -1250,17 +1291,19 @@ inline void Configuration::validateConfiguration(void)
 			{
 				if(!instrument.filename_filter_function.has_value())
 				{
+					logger::global().fatal("Configuration::validateConfiguration") << "Filename of filter function was not specified.";
 					throw std::runtime_error("[Configuration::validateConfiguration] Filename of filter function was not specified.");
 				}
 				else if(!instrument.varname_spectral.has_value() || !instrument.varname_transmittance.has_value())
 				{
+					logger::global().fatal("Configuration::validateConfiguration") << "Variable name of filter function file was not specified.";
 					throw std::runtime_error("[Configuration::validateConfiguration] Variable name of filter function file was not specified.");
 				}
 
 				if(!instrument.filter_cut_off.has_value())
 				{
 					instrument.filter_cut_off = 0.001;
-					std::cout <<  "[Configuration::validateConfiguration] Cutoff threshold of filter function was not specified. Automatically set to " << instrument.filter_cut_off.value() << "." << std::endl;
+					std::cout <<  "[Configuration::validateConfiguration] Cutoff threshold of filter function was not specified. Automatically set to " << instrument.filter_cut_off.value() << ".";
 				}
 			}
 		}
@@ -1270,48 +1313,54 @@ inline void Configuration::validateConfiguration(void)
 	if(!surface.type.has_value())
 	{
 		surface.type = SurfaceType::NoSurface;
-		std::cout << "[Configuration::validateConfiguration] surface_type was not specified. Automatically set to no_surface." << std::endl;
+		logger::global().warn("Configuration::validateConfiguration") << "surface_type was not specified. Automatically set to no_surface.";
 	}
 	else if(surface.type.value() == SurfaceType::Lambert)
 	{
 		if(!surface.albedo.has_value())
 		{
+			logger::global().fatal("Configuration::validateConfiguration") << "surface_albedo was not specified.";
 			throw std::runtime_error("[Configuration::validateConfiguration] surface_albedo was not specified.");
 		}
 		if(!surface.temperature.has_value())
 		{
+			logger::global().fatal("Configuration::validateConfiguration") << "surface_temperature was not specified.";
 			throw std::runtime_error("[Configuration::validateConfiguration] surface_temperature was not specified.");
 		}
 		if(!surface.unit.has_value())
 		{
 			surface.unit = "K";
-			std::cout << "[Configuration::validateConfiguration] surface_temperature unit was not specified. Automatically set to K." << std::endl;
+			logger::global().warn("Configuration::validateConfiguration") << "surface_temperature unit was not specified. Automatically set to K.";
 		}
 	}
 
 	// Atmosphere-layering
 	if(atmosphere.z_center.empty() && atmosphere.z_edge.empty())
 	{
+		logger::global().fatal("Configuration::validateConfiguration") << "Layering was not specified.";
 		throw std::runtime_error("[Configuration::validateConfiguration] Layering was not specified.");
 	}
 	else if(!atmosphere.z_center.empty() && !atmosphere.z_edge.empty())
 	{
+		logger::global().fatal("Configuration::validateConfiguration") << "Layering was overspecified.";
 		throw std::runtime_error("[Configuration::validateConfiguration] Layering was overspecified.");
 	}
 	if(!atmosphere.z_unit.has_value())
 	{
 		atmosphere.z_unit = "m";
-		std::cout << "[Configuration::validateConfiguration] z_unit was not specified. Automatically set to m." << std::endl;
+		logger::global().warn("Configuration::validateConfiguration") << "z_unit was not specified. Automatically set to m.";
 	}
 	// Atmosphere-temperature
 	if(!atmosphere.vertical_temperature_profile.has_value())
 	{
+		logger::global().fatal("Configuration::validateConfiguration") << "Temperature profile was not specified.";
 		throw std::runtime_error("[Configuration::validateConfiguration] Temperature profile was not specified.");
 	}
 	else if(atmosphere.vertical_temperature_profile.value() == VerticalTemperatureProfile::Table)
 	{
 		if(atmosphere.temperature_profile.empty())
 		{
+			logger::global().fatal("Configuration::validateConfiguration") << "Temperature profile was not specified.";
 			throw std::runtime_error("[Configuration::validateConfiguration] Temperature profile was not specified.");
 		}
 				
@@ -1320,12 +1369,13 @@ inline void Configuration::validateConfiguration(void)
 			if(atmosphere.temperature_unit.size() == 0)
 			{
 				atmosphere.temperature_unit = {atmosphere.z_unit.value(), "K"};
-				std::cout << "[Configuration::validateConfiguration] Temperature unit was not specified. Automatically set to K." << std::endl;
+				logger::global().warn("Configuration::validateConfiguration") << "Temperature unit was not specified. Automatically set to K.";
 			}
 			else if(atmosphere.temperature_unit.size() == 1)
 			{
 				if(getUnitInfo(atmosphere.temperature_unit[0].value()).dim != UnitDim::Temperature)
 				{
+					logger::global().fatal("Configuration::validateConfiguration") << "Invalid temperature unit dimension.";
 					throw std::runtime_error("[Configuration::validateConfiguration] Invalid temperature unit dimension.");
 				}
 				else
@@ -1335,12 +1385,14 @@ inline void Configuration::validateConfiguration(void)
 			}
 			else
 			{
+				logger::global().fatal("Configuration::validateConfiguration") << "Temperature profile unit was overspecified.";
 				throw std::runtime_error("[Configuration::validateConfiguration] Temperature profile unit was overspecified.");
 			}
 			if(!atmosphere.z_center.empty())
 			{
 				if(atmosphere.z_center.size() != atmosphere.temperature_profile.size())
 				{
+					logger::global().fatal("Configuration::validateConfiguration") << "Temperature layering does not match to atmosphere.";
 					throw std::runtime_error("[Configuration::validateConfiguration] Temperature layering does not match to atmosphere.");
 				}
 			}
@@ -1348,6 +1400,7 @@ inline void Configuration::validateConfiguration(void)
 			{
 				if(atmosphere.z_edge.size() - 1 != atmosphere.temperature_profile.size())
 				{
+					logger::global().fatal("Configuration::validateConfiguration") << "Temperature layering does not match to atmosphere.";
 					throw std::runtime_error("[Configuration::validateConfiguration] Temperature layering does not match to atmosphere.");
 				}
 			}
@@ -1357,24 +1410,24 @@ inline void Configuration::validateConfiguration(void)
 			if(!atmosphere.vertical_temperature_interpolation.has_value())
 			{
 				atmosphere.vertical_temperature_interpolation = VerticalProfileInterpolation::Linear;
-				std::cout << "[Configuration::validateConfiguration] Temperature interpolation was not specified. Automatically set to linear." << std::endl;
+				logger::global().warn("Configuration::validateConfiguration") << "Temperature interpolation was not specified. Automatically set to linear.";
 			}
 			if(atmosphere.temperature_unit.size() == 0)
 			{
 				atmosphere.temperature_unit = {atmosphere.z_unit.value(), "K"};
-				std::cout << "[Configuration::validateConfiguration] (z, temperature) unit was not specified. Automatically set to (" << atmosphere.z_unit.value() << ", K)." << std::endl;
+				logger::global().warn("Configuration::validateConfiguration") << "(z, temperature) unit was not specified. Automatically set to (" << atmosphere.z_unit.value() << ", K).";
 			}
 			else if(atmosphere.temperature_unit.size() == 1)
 			{
 				if(getUnitInfo(atmosphere.temperature_unit[0].value()).dim == UnitDim::Length)
 				{
 					atmosphere.temperature_unit.push_back(std::optional<std::string>("K"));
-					std::cout << "[Configuration::validateConfiguration] Temperature unit was not specified. Automatically set to K." << std::endl;
+					logger::global().warn("Configuration::validateConfiguration") << "Temperature unit was not specified. Automatically set to K.";
 				}
 				else if(getUnitInfo(atmosphere.temperature_unit[0].value()).dim == UnitDim::Temperature)
 				{
 					atmosphere.temperature_unit.insert(atmosphere.temperature_unit.begin(), atmosphere.z_unit);
-					std::cout << "[Configuration::validateConfiguration] z_unit for temperature was not specified. Automatically set to m." << std::endl;
+					logger::global().warn("Configuration::validateConfiguration") << "z_unit for temperature was not specified. Automatically set to m.";
 				}
 			}
 		}
@@ -1382,27 +1435,30 @@ inline void Configuration::validateConfiguration(void)
 	else if(atmosphere.vertical_temperature_profile.value() == VerticalTemperatureProfile::VIRA_EQUATOR || atmosphere.vertical_temperature_profile.value() == VerticalTemperatureProfile::VIRA_45 || atmosphere.vertical_temperature_profile.value() == VerticalTemperatureProfile::VIRA_60)
 	{
 		atmosphere.temperature_unit = {"km", "K"};
-		// std::cout << "[Configuration::validateConfiguration] (z, temperature) unit automatically set (km, K) for VIRA." << std::endl;
 
 		if(!atmosphere.vertical_temperature_interpolation.has_value())
 		{
 			atmosphere.vertical_temperature_interpolation = VerticalProfileInterpolation::Linear;
-			std::cout << "[Configuration::validateConfiguration] Temperature interpolation was not specified. Automatically set to linear." << std::endl;
+			logger::global().warn("Configuration::validateConfiguration") << "Temperature interpolation was not specified. Automatically set to linear.";
+			
 		}
 	}
 	else if(atmosphere.vertical_temperature_profile.value() == VerticalTemperatureProfile::External)
 	{
+		logger::global().fatal("Configuration::validateConfiguration") << "Temperature profile 'External' is not supported currently.";
 		throw std::runtime_error("[Configuration::validateConfiguration] Temperature profile 'External' is not supported currently.");
 	}
 	// Atmosphere-pressure
 	if(!atmosphere.vertical_pressure_profile.has_value())
 	{
+		logger::global().fatal("Configuration::validateConfiguration") << "Pressure profile was not specified.";
 		throw std::runtime_error("[Configuration::validateConfiguration] Pressure profile was not specified.");
 	}
 	else if(atmosphere.vertical_pressure_profile.value() == VerticalPressureProfile::Table)
 	{
 		if(atmosphere.pressure_profile.empty())
 		{
+			logger::global().fatal("Configuration::validateConfiguration") << "Pressure profile was not specified.";
 			throw std::runtime_error("[Configuration::validateConfiguration] Pressure profile was not specified.");
 		}
 
@@ -1411,12 +1467,13 @@ inline void Configuration::validateConfiguration(void)
 			if(atmosphere.pressure_unit.size() == 0)
 			{
 				atmosphere.pressure_unit = {atmosphere.z_unit.value(), "Pa"};
-				std::cout << "[Configuration::validateConfiguration] Pressure unit was not specified. Automatically set to Pa." << std::endl;
+				logger::global().warn("Configuration::validateConfiguration") << "Pressure unit was not specified. Automatically set to Pa.";
 			}
 			else if(atmosphere.pressure_unit.size() == 1)
 			{
 				if(getUnitInfo(atmosphere.pressure_unit[0].value()).dim != UnitDim::Pressure)
 				{
+					logger::global().fatal("Configuration::validateConfiguration") << "Invalid pressure unit dimension.";
 					throw std::runtime_error("[Configuration::validateConfiguration] Invalid pressure unit dimension.");
 				}
 				else
@@ -1426,12 +1483,14 @@ inline void Configuration::validateConfiguration(void)
 			}
 			else
 			{
+				logger::global().fatal("Configuration::validateConfiguration") << "Pressure profile unit was overspecified.";
 				throw std::runtime_error("[Configuration::validateConfiguration] Pressure profile unit was overspecified.");
 			}
 			if(!atmosphere.z_center.empty())
 			{
 				if(atmosphere.z_center.size() != atmosphere.pressure_profile.size())
 				{
+					logger::global().fatal("Configuration::validateConfiguration") << "Pressure layering does not match to atmosphere.";
 					throw std::runtime_error("[Configuration::validateConfiguration] Pressure layering does not match to atmosphere.");
 				}
 			}
@@ -1439,6 +1498,7 @@ inline void Configuration::validateConfiguration(void)
 			{
 				if(atmosphere.z_edge.size() - 1 != atmosphere.pressure_profile.size())
 				{
+					logger::global().fatal("Configuration::validateConfiguration") << "Pressure layering does not match to atmosphere.";
 					throw std::runtime_error("[Configuration::validateConfiguration] Pressure layering does not match to atmosphere.");
 				}
 			}
@@ -1448,25 +1508,25 @@ inline void Configuration::validateConfiguration(void)
 			if(!atmosphere.vertical_pressure_interpolation.has_value())
 			{
 				atmosphere.vertical_pressure_interpolation = VerticalProfileInterpolation::Exponential;
-				std::cout << "[Configuration::validateConfiguration] Pressure interpolation was not specified. Automatically set to exponential." << std::endl;
+				logger::global().warn("Configuration::validateConfiguration") << "Pressure interpolation was not specified. Automatically set to exponential.";
 			}
 			
 			if(atmosphere.pressure_unit.size() == 0)
 			{
 				atmosphere.pressure_unit = {atmosphere.z_unit.value(), "Pa"};
-				std::cout << "[Configuration::validateConfiguration] (z, pressure) unit was not specified. Automatically set to (" << atmosphere.z_unit.value() << ", Pa)." << std::endl;
+				logger::global().warn("Configuration::validateConfiguration") << "(z, pressure) unit was not specified. Automatically set to (" << atmosphere.z_unit.value() << ", Pa).";
 			}
 			else if(atmosphere.pressure_unit.size() == 1)
 			{
 				if(getUnitInfo(atmosphere.pressure_unit[0].value()).dim == UnitDim::Length)
 				{
 					atmosphere.pressure_unit.push_back(std::optional<std::string>("Pa"));
-					std::cout << "[Configuration::validateConfiguration] Pressure unit was not specified. Automatically set to Pa." << std::endl;
+					logger::global().warn("Configuration::validateConfiguration") << "Pressure unit was not specified. Automatically set to Pa.";
 				}
 				else if(getUnitInfo(atmosphere.pressure_unit[0].value()).dim == UnitDim::Pressure)
 				{
 					atmosphere.pressure_unit.insert(atmosphere.pressure_unit.begin(), atmosphere.z_unit);
-					std::cout << "[Configuration::validateConfiguration] z_unit for pressure was not specified. Automatically set to m." << std::endl;
+					logger::global().warn("Configuration::validateConfiguration") << "z_unit for pressure was not specified. Automatically set to m.";
 				}
 			}
 		}
@@ -1474,31 +1534,34 @@ inline void Configuration::validateConfiguration(void)
 	else if(atmosphere.vertical_pressure_profile.value() == VerticalPressureProfile::VIRA_EQUATOR || atmosphere.vertical_pressure_profile.value() == VerticalPressureProfile::VIRA_45 || atmosphere.vertical_pressure_profile.value() == VerticalPressureProfile::VIRA_60)
 	{
 		atmosphere.pressure_unit = {"km", "bar"};
-		// std::cout << "[Configuration::validateConfiguration] (z, pressure) unit automatically set (km, bar) for VIRA." << std::endl;
 
 		if(!atmosphere.vertical_pressure_interpolation.has_value())
 		{
 			atmosphere.vertical_pressure_interpolation = VerticalProfileInterpolation::Exponential;
-			std::cout << "[Configuration::validateConfiguration] Pressure interpolation was not specified. Automatically set to exponential." << std::endl;
+			logger::global().warn("Configuration::validateConfiguration") << "Pressure interpolation was not specified. Automatically set to exponential.";
 		}
 	}
 	else if(atmosphere.vertical_pressure_profile.value() == VerticalPressureProfile::Hydrostatic)
 	{
+		logger::global().fatal("Configuration::validateConfiguration") << "Pressure profile 'Hydrostatic' is not supported currently.";
 		throw std::runtime_error("[Configuration::validateConfiguration] Pressure profile 'Hydrostatic' is not supported currently.");
 	}
 	else if(atmosphere.vertical_pressure_profile.value() == VerticalPressureProfile::External)
 	{
+		logger::global().fatal("Configuration::validateConfiguration") << "Pressure profile 'External' is not supported currently.";
 		throw std::runtime_error("[Configuration::validateConfiguration] Pressure profile 'External' is not supported currently.");
 	}
 	// Atmosphere-number_density
 	if(!atmosphere.vertical_number_density_profile.has_value())
 	{
+		logger::global().fatal("Configuration::validateConfiguration") << "Number density profile was not specified.";
 		throw std::runtime_error("[Configuration::validateConfiguration] Number density profile was not specified.");
 	}
 	else if(atmosphere.vertical_number_density_profile.value() == VerticalNumberDensityProfile::Table)
 	{
 		if(atmosphere.number_density_profile.empty())
 		{
+			logger::global().fatal("Configuration::validateConfiguration") << "Number density profile was not specified.";
 			throw std::runtime_error("[Configuration::validateConfiguration] Number density profile was not specified.");
 		}
 
@@ -1509,12 +1572,13 @@ inline void Configuration::validateConfiguration(void)
 				atmosphere.number_density_unit = {atmosphere.z_unit.value(), "m-3"};
 				atmosphere.unit_dim_number_density = getUnitInfo(atmosphere.number_density_unit[1].value()).dim;
 				
-				std::cout << "[Configuration::validateConfiguration] NumberDensity unit was not specified. Automatically set to m-3." << std::endl;
+				logger::global().warn("Configuration::validateConfiguration") << "NumberDensity unit was not specified. Automatically set to m-3.";
 			}
 			else if(atmosphere.number_density_unit.size() == 1)
 			{
 				if(getUnitInfo(atmosphere.number_density_unit[0].value()).dim != UnitDim::NumberDensity && getUnitInfo(atmosphere.number_density_unit[0].value()).dim != UnitDim::ColumnNumberDensity)
 				{
+					logger::global().fatal("Configuration::validateConfiguration") << "Invalid number_density unit dimension.";
 					throw std::runtime_error("[Configuration::validateConfiguration] Invalid number_density unit dimension.");
 				}
 				else
@@ -1525,12 +1589,14 @@ inline void Configuration::validateConfiguration(void)
 			}
 			else
 			{
+				logger::global().fatal("Configuration::validateConfiguration") << " NumberDensity profile unit was overspecified.";
 				throw std::runtime_error("[Configuration::validateConfiguration] NumberDensity profile unit was overspecified.");
 			}
 			if(!atmosphere.z_center.empty())
 			{
 				if(atmosphere.z_center.size() != atmosphere.number_density_profile.size())
 				{
+					logger::global().fatal("Configuration::validateConfiguration") << "NumberDensity layering does not match to atmosphere.";
 					throw std::runtime_error("[Configuration::validateConfiguration] NumberDensity layering does not match to atmosphere.");
 				}
 			}
@@ -1538,6 +1604,7 @@ inline void Configuration::validateConfiguration(void)
 			{
 				if(atmosphere.z_edge.size() - 1 != atmosphere.number_density_profile.size())
 				{
+					logger::global().fatal("Configuration::validateConfiguration") << "NumberDensity layering does not match to atmosphere.";
 					throw std::runtime_error("[Configuration::validateConfiguration] NumberDensity layering does not match to atmosphere.");
 				}
 			}
@@ -1547,14 +1614,14 @@ inline void Configuration::validateConfiguration(void)
 			if(!atmosphere.vertical_number_density_interpolation.has_value())
 			{
 				atmosphere.vertical_number_density_interpolation = VerticalProfileInterpolation::Exponential;
-				std::cout << "[Configuration::validateConfiguration] Number density interpolation was not specified. Automatically set to exponential." << std::endl;
+				logger::global().warn("Configuration::validateConfiguration") << "Number density interpolation was not specified. Automatically set to exponential.";
 			}
 			
 			if(atmosphere.number_density_unit.size() == 0)
 			{
 				atmosphere.number_density_unit = {atmosphere.z_unit.value(), "m-3"};
 				atmosphere.unit_dim_number_density = getUnitInfo(atmosphere.number_density_unit[1].value()).dim;
-				std::cout << "[Configuration::validateConfiguration] (z, number_density) unit was not specified. Automatically set to (" << atmosphere.z_unit.value() << ", m-3)." << std::endl;
+				logger::global().warn("Configuration::validateConfiguration") << "(z, number_density) unit was not specified. Automatically set to (" << atmosphere.z_unit.value() << ", m-3).";
 			}
 			else if(atmosphere.number_density_unit.size() == 1)
 			{
@@ -1562,13 +1629,13 @@ inline void Configuration::validateConfiguration(void)
 				{
 					atmosphere.number_density_unit.push_back(std::optional<std::string>("m-3"));
 					atmosphere.unit_dim_number_density = getUnitInfo(atmosphere.number_density_unit[1].value()).dim;
-					std::cout << "[Configuration::validateConfiguration] Number density unit was not specified. Automatically set to m-3." << std::endl;
+					logger::global().warn("Configuration::validateConfiguration") << "Number density unit was not specified. Automatically set to m-3.";
 				}
 				else if(getUnitInfo(atmosphere.number_density_unit[0].value()).dim == UnitDim::NumberDensity)
 				{
 					atmosphere.number_density_unit.insert(atmosphere.number_density_unit.begin(), atmosphere.z_unit);
 					atmosphere.unit_dim_number_density = getUnitInfo(atmosphere.number_density_unit[1].value()).dim;
-					std::cout << "[Configuration::validateConfiguration] z_unit for number_density was not specified. Automatically set to m." << std::endl;
+					logger::global().warn("Configuration::validateConfiguration") << "z_unit for number_density was not specified. Automatically set to m.";
 				}
 			}
 		}
@@ -1577,16 +1644,16 @@ inline void Configuration::validateConfiguration(void)
 	{
 		atmosphere.number_density_unit = {"km", "m-3"};
 		atmosphere.unit_dim_number_density = getUnitInfo(atmosphere.number_density_unit[1].value()).dim;
-		// std::cout << "[Configuration::validateConfiguration] (z, number_density) unit automatically set (km, m-3) for VIRA." << std::endl;
 
 		if(!atmosphere.vertical_number_density_interpolation.has_value())
 		{
 			atmosphere.vertical_number_density_interpolation = VerticalProfileInterpolation::Exponential;
-			std::cout << "[Configuration::validateConfiguration] Number density interpolation was not specified. Automatically set to exponential." << std::endl;
+			logger::global().warn("Configuration::validateConfiguration") << "Number density interpolation was not specified. Automatically set to exponential.";
 		}
 	}
 	else if(atmosphere.vertical_number_density_profile.value() == VerticalNumberDensityProfile::External)
 	{
+		logger::global().fatal("Configuration::validateConfiguration") << "Number density profile 'External' is not supported currently.";
 		throw std::runtime_error("[Configuration::validateConfiguration] Number density profile 'External' is not supported currently.");
 	}
 
@@ -1598,11 +1665,12 @@ inline void Configuration::validateConfiguration(void)
 		if(!atmosphere.species_configuration[i].name.has_value())
 		{
 			atmosphere.species_configuration[i].name = "species_" + std::to_string(i);
-			std::cout << "[Configuration::validateConfiguration] Name of species " << i << " was not specified. Automatically set to " << atmosphere.species_configuration[i].name.value() << "." << std::endl;
+			logger::global().warn("Configuration::validateConfiguration") << "Name of species " << i << " was not specified. Automatically set to " << atmosphere.species_configuration[i].name.value() << ".";
 		}
 
 		if(atmosphere.species_configuration[i].vertical_profile.empty())
 		{
+			logger::global().fatal("Configuration::validateConfiguration") << "Vertical profile for species "+ std::to_string(i) + " was not specified.";
 			throw std::runtime_error("[Configuration::validateConfiguration] Vertical profile for species "+ std::to_string(i) + " was not specified.");
 		}
 		
@@ -1611,7 +1679,7 @@ inline void Configuration::validateConfiguration(void)
 			if(atmosphere.species_configuration[i].unit_vertical_profile.size() == 0)
 			{
 				atmosphere.species_configuration[i].unit_vertical_profile = {atmosphere.z_unit.value(), "m-3"};
-				std::cout << "[Configuration::validateConfiguration] Vertical profile unit was not specified for species " << i << ". Automatically set to m-3." << std::endl;
+				logger::global().warn("Configuration::validateConfiguration") << "Vertical profile unit was not specified for species " << i << ". Automatically set to m-3.";
 			}
 			else if(atmosphere.species_configuration[i].unit_vertical_profile.size() == 1)
 			{
@@ -1619,17 +1687,20 @@ inline void Configuration::validateConfiguration(void)
 				
 				if(getUnitInfo(atmosphere.species_configuration[i].unit_vertical_profile[1].value()).dim != UnitDim::Dimensionless && getUnitInfo(atmosphere.species_configuration[i].unit_vertical_profile[1].value()).dim != UnitDim::NumberDensity && getUnitInfo(atmosphere.species_configuration[i].unit_vertical_profile[1].value()).dim != UnitDim::ColumnNumberDensity)
 				{
+					logger::global().fatal("Configuration::validateConfiguration") << "Invalid vertical profile unit dimension for species " + std::to_string(i) + ".";
 					throw std::runtime_error("[Configuration::validateConfiguration] Invalid vertical profile unit dimension for species " + std::to_string(i) + ".");
 				}
 			}
 			else
 			{
+				logger::global().fatal("Configuration::validateConfiguration") << "Vertical profile unit for species " + std::to_string(i) + " was overspecified.";
 				throw std::runtime_error("[Configuration::validateConfiguration] Vertical profile unit for species " + std::to_string(i) + " was overspecified.");
 			}
 			if(!atmosphere.z_center.empty())
 			{
 				if(atmosphere.z_center.size() != atmosphere.species_configuration[i].vertical_profile.size())
 				{
+					logger::global().fatal("Configuration::validateConfiguration") << "Vertical profile layering for species " + std::to_string(i) + " does not match to atmosphere.";
 					throw std::runtime_error("[Configuration::validateConfiguration] Vertical profile layering for species " + std::to_string(i) + " does not match to atmosphere.");
 				}
 			}
@@ -1637,6 +1708,7 @@ inline void Configuration::validateConfiguration(void)
 			{
 				if(atmosphere.z_edge.size() - 1 != atmosphere.species_configuration[i].vertical_profile.size())
 				{
+					logger::global().fatal("Configuration::validateConfiguration") << "Vertical profile layering for species " + std::to_string(i) + " does not match to atmosphere.";
 					throw std::runtime_error("[Configuration::validateConfiguration] Vertical profile layering for species " + std::to_string(i) + " does not match to atmosphere.");
 				}
 			}
@@ -1646,39 +1718,42 @@ inline void Configuration::validateConfiguration(void)
 			if(!atmosphere.species_configuration[i].vertical_profile_interpolation.has_value())
 			{
 				atmosphere.species_configuration[i].vertical_profile_interpolation = VerticalProfileInterpolation::Exponential;
-				std::cout << "[Configuration::validateConfiguration] Vertical profile interpolation for species "+ std::to_string(i) + " was not specified. Automatically set to exponential." << std::endl;
+				logger::global().warn("Configuration::validateConfiguration") << "Vertical profile interpolation for species "+ std::to_string(i) + " was not specified. Automatically set to exponential.";
 			}
 			
 			if(atmosphere.species_configuration[i].unit_vertical_profile.size() == 0)
 			{
 				atmosphere.species_configuration[i].unit_vertical_profile = {atmosphere.z_unit.value(), "m-3"};
-				std::cout << "[Configuration::validateConfiguration] (z, vertical_profile) unit for species " + std::to_string(i) + " was not specified. Automatically set to (" << atmosphere.z_unit.value() << ", m-3)." << std::endl;
+				logger::global().warn("Configuration::validateConfiguration") << "(z, vertical_profile) unit for species " + std::to_string(i) + " was not specified. Automatically set to (" << atmosphere.z_unit.value() << ", m-3).";
 			}
 			else if(atmosphere.species_configuration[i].unit_vertical_profile.size() == 1)
 			{
 				if(getUnitInfo(atmosphere.species_configuration[i].unit_vertical_profile[0].value()).dim == UnitDim::Length)
 				{
 					atmosphere.species_configuration[i].unit_vertical_profile.push_back(std::optional<std::string>("m-3"));
-					std::cout << "[Configuration::validateConfiguration] Vertical profile unit for species " + std::to_string(i) + " was not specified. Automatically set to m-3." << std::endl;
+					logger::global().warn("Configuration::validateConfiguration") << "Vertical profile unit for species " + std::to_string(i) + " was not specified. Automatically set to m-3.";
 				}
 				else if(getUnitInfo(atmosphere.species_configuration[i].unit_vertical_profile[0].value()).dim == UnitDim::Dimensionless || getUnitInfo(atmosphere.species_configuration[i].unit_vertical_profile[0].value()).dim == UnitDim::NumberDensity || getUnitInfo(atmosphere.species_configuration[i].unit_vertical_profile[0].value()).dim == UnitDim::ColumnNumberDensity)
 				{
 					atmosphere.species_configuration[i].unit_vertical_profile.insert(atmosphere.species_configuration[i].unit_vertical_profile.begin(), atmosphere.z_unit);
-					std::cout << "[Configuration::validateConfiguration] z_unit for vertical profile for species " + std::to_string(i) + " was not specified. Automatically set to m." << std::endl;
+					logger::global().warn("Configuration::validateConfiguration") << "z_unit for vertical profile for species " + std::to_string(i) + " was not specified. Automatically set to m.";
 				}
 			}
 		}
 	
 		if(!atmosphere.species_configuration[i].species_state.has_value())
 		{
+			logger::global().fatal("Configuration::validateConfiguration") << "species_state for species "+ std::to_string(i) + " was not specified.";
 			throw std::runtime_error("[Configuration::validateConfiguration] species_state for species "+ std::to_string(i) + " was not specified.");
 		}
 		if(atmosphere.species_configuration[i].species_state.value() == SpeciesState::Molecule && !atmosphere.species_configuration[i].species_type.has_value())
 		{
+			logger::global().fatal("Configuration::validateConfiguration") << "species_type (scatterer, absorber or extinction) for species "+ std::to_string(i) + " was not specified.";
 			throw std::runtime_error("[Configuration::validateConfiguration] species_type (scatterer, absorber or extinction) for species "+ std::to_string(i) + " was not specified.");
 		}
 		if(atmosphere.species_configuration[i].species_state.value() == SpeciesState::Aerosol && atmosphere.species_configuration[i].species_type.has_value())
 		{
+			logger::global().fatal("Configuration::validateConfiguration") << "species_type (scatterer, absorber or extinction) for aerosol species "+ std::to_string(i) + " was specified.";
 			throw std::runtime_error("[Configuration::validateConfiguration] species_type (scatterer, absorber or extinction) for aerosol species "+ std::to_string(i) + " was specified.");
 		}
 		// 物性の整合性検証
@@ -1688,12 +1763,14 @@ inline void Configuration::validateConfiguration(void)
 			{
 				if(!atmosphere.species_configuration[i].scatter_type.has_value())
 				{
+					logger::global().fatal("Configuration::validateConfiguration") << "scatter_type for species "+ std::to_string(i) + " was not specified.";
 					throw std::runtime_error("[Configuration::validateConfiguration] scatter_type for species "+ std::to_string(i) + " was not specified.");
 				}
 				else if(atmosphere.species_configuration[i].scatter_type.value() != ScatterType::Mie)
 				{
 					if(!atmosphere.species_configuration[i].scattering_cross_section_type.has_value())
 					{
+						logger::global().fatal("Configuration::validateConfiguration") << "scattering_cross_section_type for species "+ std::to_string(i) + " was not specified.";
 						throw std::runtime_error("[Configuration::validateConfiguration] scattering_cross_section_type for species "+ std::to_string(i) + " was not specified.");
 					}
 					else if(atmosphere.species_configuration[i].scattering_cross_section_type == CrossSectionType::Constant)
@@ -1701,10 +1778,11 @@ inline void Configuration::validateConfiguration(void)
 						if(!atmosphere.species_configuration[i].scattering_cross_section_unit.has_value())
 						{
 							atmosphere.species_configuration[i].scattering_cross_section_unit = "m2";
-							std::cout << "[Configuration::validateConfiguration] scattering_cross_section_unit for species " + std::to_string(i) + " was not specified. Automatically set to m2." << std::endl;
+							logger::global().warn("Configuration::validateConfiguration") << "scattering_cross_section_unit for species " + std::to_string(i) + " was not specified. Automatically set to m2.";
 						}
 						if(!atmosphere.species_configuration[i].scattering_cross_section.has_value())
 						{
+							logger::global().fatal("Configuration::validateConfiguration") << "scattering_cross_section for species "+ std::to_string(i) + " was not specified.";
 							throw std::runtime_error("[Configuration::validateConfiguration] scattering_cross_section for species "+ std::to_string(i) + " was not specified.");
 						}
 					}
@@ -1712,10 +1790,12 @@ inline void Configuration::validateConfiguration(void)
 					{
 						if(!atmosphere.species_configuration[i].varname_scattering_cross_section_spectral.has_value() || !atmosphere.species_configuration[i].varname_scattering_cross_section_temperature.has_value() || !atmosphere.species_configuration[i].varname_scattering_cross_section.has_value())
 						{
+							logger::global().fatal("Configuration::validateConfiguration") << "Variable name of scattering cross section file for species "+ std::to_string(i) + " was not specified.";
 							throw std::runtime_error("[Configuration::validateConfiguration] Variable name of scattering cross section file for species "+ std::to_string(i) + " was not specified.");
 						}
 						if(!atmosphere.species_configuration[i].filename_scattering_cross_section.has_value())
 						{
+							logger::global().fatal("Configuration::validateConfiguration") << "filename_scattering_cross_section for species "+ std::to_string(i) + " was not specified.";
 							throw std::runtime_error("[Configuration::validateConfiguration] filename_scattering_cross_section for species "+ std::to_string(i) + " was not specified.");
 						}
 					}
@@ -1724,12 +1804,14 @@ inline void Configuration::validateConfiguration(void)
 					{
 						if(!atmosphere.species_configuration[i].g_factor.has_value())
 						{
+							logger::global().fatal("Configuration::validateConfiguration") << "g_factor for species "+ std::to_string(i) + " was not specified.";
 							throw std::runtime_error("[Configuration::validateConfiguration] g_factor for species "+ std::to_string(i) + " was not specified.");
 						}
 					}
 				}
 				else if(atmosphere.species_configuration[i].scatter_type.value() == ScatterType::Mie)
 				{
+					logger::global().fatal("Configuration::validateConfiguration") << "Mie scattering is not supported for molecules for species "+ std::to_string(i) + ". Use aerosol instead.";
 					throw std::runtime_error("[Configuration::validateConfiguration] Mie scattering is not supported for molecules for species "+ std::to_string(i) + ". Use aerosol instead.");
 				}
 			}
@@ -1738,6 +1820,7 @@ inline void Configuration::validateConfiguration(void)
 			{
 				if(!atmosphere.species_configuration[i].absorption_cross_section_type.has_value())
 				{
+					logger::global().fatal("Configuration::validateConfiguration") << "absorption_cross_section_type for species "+ std::to_string(i) + " was not specified.";
 					throw std::runtime_error("[Configuration::validateConfiguration] absorption_cross_section_type for species "+ std::to_string(i) + " was not specified.");
 				}
 				else if(atmosphere.species_configuration[i].absorption_cross_section_type == CrossSectionType::Constant)
@@ -1745,25 +1828,29 @@ inline void Configuration::validateConfiguration(void)
 					if(!atmosphere.species_configuration[i].absorption_cross_section_unit.has_value())
 					{
 						atmosphere.species_configuration[i].absorption_cross_section_unit = "m2";
-						std::cout << "[Configuration::validateConfiguration] absorption_cross_section_unit for species " + std::to_string(i) + " was not specified. Automatically set to m2." << std::endl;
+						logger::global().warn("Configuration::validateConfiguration") << "absorption_cross_section_unit for species " + std::to_string(i) + " was not specified. Automatically set to m2.";
 					}
 					if(!atmosphere.species_configuration[i].absorption_cross_section.has_value())
 					{
+						logger::global().fatal("Configuration::validateConfiguration") << "absorption_cross_section for species "+ std::to_string(i) + " was not specified.";
 						throw std::runtime_error("[Configuration::validateConfiguration] absorption_cross_section for species "+ std::to_string(i) + " was not specified.");
 					}
 				}
 				else if(atmosphere.species_configuration[i].absorption_cross_section_type == CrossSectionType::External)
 				{
 					if(!atmosphere.species_configuration[i].varname_absorption_cross_section_spectral.has_value() || !atmosphere.species_configuration[i].varname_absorption_cross_section_temperature.has_value() || !atmosphere.species_configuration[i].varname_absorption_cross_section.has_value())
-						{
-							throw std::runtime_error("[Configuration::validateConfiguration] Variable name of absorption cross section file for species "+ std::to_string(i) + " was not specified.");
-						}
-						if(!atmosphere.species_configuration[i].filename_absorption_cross_section.has_value())
-						{
-							throw std::runtime_error("[Configuration::validateConfiguration] filename_absorption_cross_section for species "+ std::to_string(i) + " was not specified.");
-						}
+					{
+						logger::global().fatal("Configuration::validateConfiguration") << "Variable name of absorption cross section file for species "+ std::to_string(i) + " was not specified.";
+						throw std::runtime_error("[Configuration::validateConfiguration] Variable name of absorption cross section file for species "+ std::to_string(i) + " was not specified.");
+					}
 					if(!atmosphere.species_configuration[i].filename_absorption_cross_section.has_value())
 					{
+						logger::global().fatal("Configuration::validateConfiguration") << "filename_absorption_cross_section for species "+ std::to_string(i) + " was not specified.";
+						throw std::runtime_error("[Configuration::validateConfiguration] filename_absorption_cross_section for species "+ std::to_string(i) + " was not specified.");
+					}
+					if(!atmosphere.species_configuration[i].filename_absorption_cross_section.has_value())
+					{
+						logger::global().fatal("Configuration::validateConfiguration") << "filename_absorption_cross_section for species "+ std::to_string(i) + " was not specified.";
 						throw std::runtime_error("[Configuration::validateConfiguration] filename_absorption_cross_section for species "+ std::to_string(i) + " was not specified.");
 					}
 				}
@@ -1773,6 +1860,7 @@ inline void Configuration::validateConfiguration(void)
 
 					if(!atmosphere.species_configuration[i].molecule_id.has_value())
 					{
+						logger::global().fatal("Configuration::validateConfiguration") << "molecule_id for species " + std::to_string(i) + " was not specified.";
 						throw std::runtime_error("[Configuration::validateConfiguration] molecule_id for species " + std::to_string(i) + " was not specified.");
 					}
 
@@ -1781,14 +1869,13 @@ inline void Configuration::validateConfiguration(void)
 						atmosphere.species_configuration[i].isotopologue_type = IsotopologueType::All;
 						atmosphere.species_configuration[i].isotopologue_abundance_type = IsotopologueAbundanceType::HITRAN;
 						atmosphere.species_configuration[i].is_normalize = false;
-						std::cout << "[Configuration::validateConfiguration] isotopologue_type for species " + std::to_string(i) + " was not specified. Automatically set to HITRAN." << std::endl;
-
-						// throw std::runtime_error("[Configuration::validateConfiguration] isotopologue_type for species " + std::to_string(i) + " was not specified.");
+						logger::global().warn("Configuration::validateConfiguration") << "isotopologue_type for species " + std::to_string(i) + " was not specified. Automatically set to HITRAN.";
 					}
 					else if(atmosphere.species_configuration[i].isotopologue_type.value() == IsotopologueType::Defined)
 					{
 						if(atmosphere.species_configuration[i].local_isotopologue_id.empty())
 						{
+							logger::global().fatal("Configuration::validateConfiguration") << "local_isotopologue_id for species " + std::to_string(i) + " was not specified.";
 							throw std::runtime_error("[Configuration::validateConfiguration] local_isotopologue_id for species " + std::to_string(i) + " was not specified.");
 						}
 
@@ -1799,6 +1886,7 @@ inline void Configuration::validateConfiguration(void)
 
 						if(it != check_ids.end())
 						{
+							logger::global().fatal("Configuration::validateConfiguration") << "Duplicate local_isotopologue_id (" + std::to_string(*it) + ") found for species " + std::to_string(i) + ".";
 							throw std::runtime_error("[Configuration::validateConfiguration] Duplicate local_isotopologue_id (" + std::to_string(*it) + ") found for species " + std::to_string(i) + ".");
 						}
 					}
@@ -1806,24 +1894,28 @@ inline void Configuration::validateConfiguration(void)
 					{
 						if(!atmosphere.species_configuration[i].local_isotopologue_id.empty())
 						{
+							logger::global().fatal("Configuration::validateConfiguration") << "local_isotopologue_id for species " + std::to_string(i) + " was overspecified.";
 							throw std::runtime_error("[Configuration::validateConfiguration] local_isotopologue_id for species " + std::to_string(i) + " was overspecified.");
 						}
 					}
 
 					if(!atmosphere.species_configuration[i].isotopologue_abundance_type.has_value())
 					{
+						logger::global().fatal("Configuration::validateConfiguration") << "isotopologue_abundance_type for species " + std::to_string(i) + " was not specified.";
 						throw std::runtime_error("[Configuration::validateConfiguration] isotopologue_abundance_type for species " + std::to_string(i) + " was not specified.");
 					}
 					else if(atmosphere.species_configuration[i].isotopologue_abundance_type.value() == IsotopologueAbundanceType::Defined)
 					{
 						if(atmosphere.species_configuration[i].abundance.empty())
 						{
+							logger::global().fatal("Configuration::validateConfiguration") << "isotopologue abundance for species " + std::to_string(i) + " was not specified.";
 							throw std::runtime_error("[Configuration::validateConfiguration] isotopologue abundance for species " + std::to_string(i) + " was not specified.");
 						}
 						else if(atmosphere.species_configuration[i].isotopologue_type.value() == IsotopologueType::Defined)
 						{
 							if(atmosphere.species_configuration[i].abundance.size() != atmosphere.species_configuration[i].local_isotopologue_id.size())
 							{
+								logger::global().fatal("Configuration::validateConfiguration") << "isotopologue abundance for species " + std::to_string(i) + " mismatch to local id list.";
 								throw std::runtime_error("[Configuration::validateConfiguration] isotopologue abundance for species " + std::to_string(i) + " mismatch to local id list.");
 							}
 						}
@@ -1831,6 +1923,7 @@ inline void Configuration::validateConfiguration(void)
 						{
 							if(atmosphere.species_configuration[i].abundance.size() != hitran::isos_for_molecule(atmosphere.species_configuration[i].molecule_id.value()).size())
 							{
+								logger::global().fatal("Configuration::validateConfiguration") << "isotopologue abundance for species " + std::to_string(i) + " mismatch to local id list.";
 								throw std::runtime_error("[Configuration::validateConfiguration] isotopologue abundance for species " + std::to_string(i) + " mismatch to local id list.");
 							}
 						}
@@ -1839,6 +1932,7 @@ inline void Configuration::validateConfiguration(void)
 					{
 						if(!atmosphere.species_configuration[i].abundance.empty())
 						{
+							logger::global().fatal("Configuration::validateConfiguration") << "isotopologue abundance for species "+ std::to_string(i) + " was overspecified.";
 							throw std::runtime_error("[Configuration::validateConfiguration] isotopologue abundance for species "+ std::to_string(i) + " was overspecified.");
 						}
 					}
@@ -1849,6 +1943,7 @@ inline void Configuration::validateConfiguration(void)
 						{
 							if(atmosphere.species_configuration[i].scalar.size() != atmosphere.species_configuration[i].local_isotopologue_id.size())
 							{
+								logger::global().fatal("Configuration::validateConfiguration") << "isotopologue scalar for species " + std::to_string(i) + " mismatch to local id list.";
 								throw std::runtime_error("[Configuration::validateConfiguration] isotopologue scalar for species " + std::to_string(i) + " mismatch to local id list.");
 							}
 						}
@@ -1856,6 +1951,7 @@ inline void Configuration::validateConfiguration(void)
 						{
 							if(atmosphere.species_configuration[i].scalar.size() != hitran::isos_for_molecule(atmosphere.species_configuration[i].molecule_id.value()).size())
 							{
+								logger::global().fatal("Configuration::validateConfiguration") << "isotopologue scalar for species " + std::to_string(i) + " mismatch to local id list.";
 								throw std::runtime_error("[Configuration::validateConfiguration] isotopologue scalar for species " + std::to_string(i) + " mismatch to local id list.");
 							}
 						}
@@ -1864,7 +1960,7 @@ inline void Configuration::validateConfiguration(void)
 					if(!atmosphere.species_configuration[i].is_normalize.has_value())
 					{
 						atmosphere.species_configuration[i].is_normalize = false;
-						std::cout << "[Configuration::validateConfiguration] normalization of isotopologue abundance for species " + std::to_string(i) + " was not specified. Automatically set to false." << std::endl;
+						logger::global().warn("Configuration::validateConfiguration") << "normalization of isotopologue abundance for species " + std::to_string(i) + " was not specified. Automatically set to false.";
 					}
 				}
 			}
@@ -1876,12 +1972,13 @@ inline void Configuration::validateConfiguration(void)
 				//Mie計算に必要なもの：粒径, 複素屈折率
 				if(!atmosphere.species_configuration[i].size_distribution.has_value())
 				{
+					logger::global().fatal("Configuration::validateConfiguration") << "size_distribution for species "+ std::to_string(i) + " was not specified.";
 					throw std::runtime_error("[Configuration::validateConfiguration] size_distribution for species "+ std::to_string(i) + " was not specified.");
 				}
 				if(!atmosphere.species_configuration[i].unit_input_radius.has_value())
 				{
 					atmosphere.species_configuration[i].unit_input_radius = "m";
-					std::cout << "[Configuration::validateConfiguration] Unit of radius of species " << i << " was not specified. Automatically set to " << atmosphere.species_configuration[i].unit_input_radius.value() << "." << std::endl;
+					logger::global().warn("Configuration::validateConfiguration") << "Unit of radius of species " << i << " was not specified. Automatically set to " << atmosphere.species_configuration[i].unit_input_radius.value() << ".";
 				}
 				
 				if(atmosphere.species_configuration[i].size_distribution.value() == ParticleSizeDistribution::Delta)
@@ -1889,6 +1986,7 @@ inline void Configuration::validateConfiguration(void)
 					// 1. 必須パラメータのチェック (Deltaの半径: delta_r)
 					if(!atmosphere.species_configuration[i].delta_r.has_value())
 					{
+						logger::global().fatal("Configuration::validateConfiguration") << "Delta radius (r) for species "+ std::to_string(i) + " was not specified.";
 						throw std::runtime_error("[Configuration::validateConfiguration] Delta radius (r) for species "+ std::to_string(i) + " was not specified.");
 					}
 
@@ -1897,77 +1995,77 @@ inline void Configuration::validateConfiguration(void)
 					// Rectangular パラメータ
 					if(atmosphere.species_configuration[i].rect_r_mean.has_value())
 					{
-						std::cout << "[Configuration::validateConfiguration] rect_r_mean (r_mean) was ignored for Delta." << std::endl;
+						logger::global().warn("Configuration::validateConfiguration") << "rect_r_mean (r_mean) was ignored for Delta.";
 						atmosphere.species_configuration[i].rect_r_mean.reset();
 					}
 					if(atmosphere.species_configuration[i].rect_width.has_value())
 					{
-						std::cout << "[Configuration::validateConfiguration] rect_width (width) was ignored for Delta." << std::endl;
+						logger::global().warn("Configuration::validateConfiguration") << "rect_width (width) was ignored for Delta.";
 						atmosphere.species_configuration[i].rect_width.reset();
 					}
 
 					// Log-Normal パラメータ (LND)
 					if(atmosphere.species_configuration[i].lnd_r_g.has_value())
 					{
-						std::cout << "[Configuration::validateConfiguration] lnd_r_g (r_g) was ignored for Delta." << std::endl;
+						logger::global().warn("Configuration::validateConfiguration") << "lnd_r_g (r_g) was ignored for Delta.";
 						atmosphere.species_configuration[i].lnd_r_g.reset();
 					}
 					if(atmosphere.species_configuration[i].lnd_sigma_g.has_value())
 					{
-						std::cout << "[Configuration::validateConfiguration] lnd_sigma_g (sigma_g) was ignored for Delta." << std::endl;
+						logger::global().warn("Configuration::validateConfiguration") << "lnd_sigma_g (sigma_g) was ignored for Delta.";
 						atmosphere.species_configuration[i].lnd_sigma_g.reset();
 					}
 					
 					// Gamma (GD) パラメータ
 					if(atmosphere.species_configuration[i].gd_a.has_value())
 					{
-						std::cout << "[Configuration::validateConfiguration] gd_a (a) was ignored for Delta." << std::endl;
+						logger::global().warn("Configuration::validateConfiguration") << "gd_a (a) was ignored for Delta.";
 						atmosphere.species_configuration[i].gd_a.reset();
 					}
 					if(atmosphere.species_configuration[i].gd_b.has_value())
 					{
-						std::cout << "[Configuration::validateConfiguration] gd_b (b) was ignored for Delta." << std::endl;
+						logger::global().warn("Configuration::validateConfiguration") << "gd_b (b) was ignored for Delta.";
 						atmosphere.species_configuration[i].gd_b.reset();
 					}
 					
 					// Modified Gamma (MGD) パラメータ
 					if(atmosphere.species_configuration[i].mgd_r_c.has_value())
 					{
-						std::cout << "[Configuration::validateConfiguration] mgd_r_c (r_c) was ignored for Delta." << std::endl;
+						logger::global().warn("Configuration::validateConfiguration") << "mgd_r_c (r_c) was ignored for Delta.";
 						atmosphere.species_configuration[i].mgd_r_c.reset();
 					}
 					if(atmosphere.species_configuration[i].mgd_alpha.has_value())
 					{
-						std::cout << "[Configuration::validateConfiguration] mgd_alpha (alpha) was ignored for Delta." << std::endl;
+						logger::global().warn("Configuration::validateConfiguration") << "mgd_alpha (alpha) was ignored for Delta.";
 						atmosphere.species_configuration[i].mgd_alpha.reset();
 					}
 					if(atmosphere.species_configuration[i].mgd_gamma.has_value())
 					{
-						std::cout << "[Configuration::validateConfiguration] mgd_gamma (beta) was ignored for Delta." << std::endl;
+						logger::global().warn("Configuration::validateConfiguration") << "mgd_gamma (beta) was ignored for Delta.";
 						atmosphere.species_configuration[i].mgd_gamma.reset();
 					}
 
 					// Power Law (PL) パラメータ
 					if(atmosphere.species_configuration[i].pl_delta.has_value())
 					{
-						std::cout << "[Configuration::validateConfiguration] pl_delta (delta) was ignored for Delta." << std::endl;
+						logger::global().warn("Configuration::validateConfiguration") << "pl_delta (delta) was ignored for Delta.";
 						atmosphere.species_configuration[i].pl_delta.reset();
 					}
 					if(atmosphere.species_configuration[i].pl_r1.has_value())
 					{
-						std::cout << "[Configuration::validateConfiguration] pl_r1 (r_min) was ignored for Delta." << std::endl;
+						logger::global().warn("Configuration::validateConfiguration") << "pl_r1 (r_min) was ignored for Delta.";
 						atmosphere.species_configuration[i].pl_r1.reset();
 					}
 					if(atmosphere.species_configuration[i].pl_r2.has_value())
 					{
-						std::cout << "[Configuration::validateConfiguration] pl_r2 (r_max) was ignored for Delta." << std::endl;
+						logger::global().warn("Configuration::validateConfiguration") << "pl_r2 (r_max) was ignored for Delta.";
 						atmosphere.species_configuration[i].pl_r2.reset();
 					}
 
 					// サンプリング設定 (Deltaは通常サンプリングをしないため)
 					if(atmosphere.species_configuration[i].count_radius.has_value())
 					{
-						std::cout << "[Configuration::validateConfiguration] n_radius was ignored for Delta." << std::endl;
+						logger::global().warn("Configuration::validateConfiguration") << "n_radius was ignored for Delta.";
 						atmosphere.species_configuration[i].count_radius.reset();
 					}
 				}
@@ -1975,8 +2073,8 @@ inline void Configuration::validateConfiguration(void)
 				{
 					if(!atmosphere.species_configuration[i].count_radius.has_value())
 					{
-						atmosphere.species_configuration[i].count_radius = 16;
-						std::cout << "[Configuration::validateConfiguration] n_radius for species " << i << " was not specified. Automatically set to " << atmosphere.species_configuration[i].count_radius.value() << "." << std::endl;
+						atmosphere.species_configuration[i].count_radius = 32;
+						logger::global().warn("Configuration::validateConfiguration") << "n_radius for species " << i << " was not specified. Automatically set to " << atmosphere.species_configuration[i].count_radius.value() << ".";
 
 					}
 
@@ -1985,67 +2083,69 @@ inline void Configuration::validateConfiguration(void)
 						// 1. 必須パラメータのチェック
 						if(!atmosphere.species_configuration[i].rect_r_mean.has_value())
 						{
+							logger::global().fatal("Configuration::validateConfiguration") << "Rectangular mean radius (rect_r_mean) for species "+ std::to_string(i) + " was not specified.";
 							throw std::runtime_error("[Configuration::validateConfiguration] Rectangular mean radius (rect_r_mean) for species "+ std::to_string(i) + " was not specified.");
 						}
 						if(!atmosphere.species_configuration[i].rect_width.has_value())
 						{
+							logger::global().fatal("Configuration::validateConfiguration") << " Rectangular width (rect_width) for species "+ std::to_string(i) + " was not specified.";
 							throw std::runtime_error("[Configuration::validateConfiguration] Rectangular width (rect_width) for species "+ std::to_string(i) + " was not specified.");
 						}
 						
 						// 他の全分布パラメータの無視とリセット (Ignored Checks)
 						if(atmosphere.species_configuration[i].delta_r.has_value())
 						{ 
-							std::cout << "[Configuration::validateConfiguration] delta_r (r) was ignored for Rectangular." << std::endl;
+							logger::global().warn("Configuration::validateConfiguration") << "delta_r (r) was ignored for Rectangular.";
 							atmosphere.species_configuration[i].delta_r.reset(); 
 						}
 						if(atmosphere.species_configuration[i].lnd_r_g.has_value())
 						{ 
-							std::cout << "[Configuration::validateConfiguration] lnd_r_g (r_g) was ignored for Rectangular." << std::endl;
+							logger::global().warn("Configuration::validateConfiguration") << "lnd_r_g (r_g) was ignored for Rectangular.";
 							atmosphere.species_configuration[i].lnd_r_g.reset(); 
 						}
 						if(atmosphere.species_configuration[i].lnd_sigma_g.has_value())
 						{ 
-							std::cout << "[Configuration::validateConfiguration] lnd_sigma_g (sigma_g) was ignored for Rectangular." << std::endl;
+							logger::global().warn("Configuration::validateConfiguration") << "lnd_sigma_g (sigma_g) was ignored for Rectangular.";
 							atmosphere.species_configuration[i].lnd_sigma_g.reset(); 
 						}
 						if(atmosphere.species_configuration[i].gd_a.has_value())
 						{ 
-							std::cout << "[Configuration::validateConfiguration] gd_a (a) was ignored for Rectangular." << std::endl;
+							logger::global().warn("Configuration::validateConfiguration") << "gd_a (a) was ignored for Rectangular.";
 							atmosphere.species_configuration[i].gd_a.reset(); 
 						}
 						if(atmosphere.species_configuration[i].gd_b.has_value())
 						{ 
-							std::cout << "[Configuration::validateConfiguration] gd_b (b) was ignored for Rectangular." << std::endl;
+							logger::global().warn("Configuration::validateConfiguration") << "gd_b (b) was ignored for Rectangular.";
 							atmosphere.species_configuration[i].gd_b.reset(); 
 						}
 						if(atmosphere.species_configuration[i].mgd_r_c.has_value())
 						{ 
-							std::cout << "[Configuration::validateConfiguration] mgd_r_c (r_c) was ignored for Rectangular." << std::endl;
+							logger::global().warn("Configuration::validateConfiguration") << "mgd_r_c (r_c) was ignored for Rectangular.";
 							atmosphere.species_configuration[i].mgd_r_c.reset(); 
 						}
 						if(atmosphere.species_configuration[i].mgd_alpha.has_value())
 						{ 
-							std::cout << "[Configuration::validateConfiguration] mgd_alpha (alpha) was ignored for Rectangular." << std::endl;
+							logger::global().warn("Configuration::validateConfiguration") << "mgd_alpha (alpha) was ignored for Rectangular.";
 							atmosphere.species_configuration[i].mgd_alpha.reset(); 
 						}
 						if(atmosphere.species_configuration[i].mgd_gamma.has_value())
 						{ 
-							std::cout << "[Configuration::validateConfiguration] mgd_gamma (gamma) was ignored for Rectangular." << std::endl;
+							logger::global().warn("Configuration::validateConfiguration") << "mgd_gamma (gamma) was ignored for Rectangular.";
 							atmosphere.species_configuration[i].mgd_gamma.reset(); 
 						}
 						if(atmosphere.species_configuration[i].pl_delta.has_value())
 						{ 
-							std::cout << "[Configuration::validateConfiguration] pl_delta (delta) was ignored for Rectangular." << std::endl;
+							logger::global().warn("Configuration::validateConfiguration") << "pl_delta (delta) was ignored for Rectangular.";
 							atmosphere.species_configuration[i].pl_delta.reset(); 
 						}
 						if(atmosphere.species_configuration[i].pl_r1.has_value())
 						{ 
-							std::cout << "[Configuration::validateConfiguration] pl_r1 (r_min) was ignored for Rectangular." << std::endl;
+							logger::global().warn("Configuration::validateConfiguration") << "pl_r1 (r_min) was ignored for Rectangular.";
 							atmosphere.species_configuration[i].pl_r1.reset(); 
 						}
 						if(atmosphere.species_configuration[i].pl_r2.has_value())
 						{ 
-							std::cout << "[Configuration::validateConfiguration] pl_r2 (r_max) was ignored for Rectangular." << std::endl;
+							logger::global().warn("Configuration::validateConfiguration") << "pl_r2 (r_max) was ignored for Rectangular.";
 							atmosphere.species_configuration[i].pl_r2.reset(); 
 						}
 					}
@@ -2054,67 +2154,69 @@ inline void Configuration::validateConfiguration(void)
 						// 1. 必須パラメータのチェック
 						if(!atmosphere.species_configuration[i].lnd_r_g.has_value())
 						{
+							logger::global().fatal("Configuration::validateConfiguration") << "LogNormal geometric mean radius (r_g) for species "+ std::to_string(i) + " was not specified.";
 							throw std::runtime_error("[Configuration::validateConfiguration] LogNormal geometric mean radius (r_g) for species "+ std::to_string(i) + " was not specified.");
 						}
 						if(!atmosphere.species_configuration[i].lnd_sigma_g.has_value())
 						{
+							logger::global().fatal("Configuration::validateConfiguration") << "LogNormal log standard deviation (sigma_g) for species "+ std::to_string(i) + " was not specified.";
 							throw std::runtime_error("[Configuration::validateConfiguration] LogNormal log standard deviation (sigma_g) for species "+ std::to_string(i) + " was not specified.");
 						}
 
 						// 2. 他の全分布パラメータの無視とリセット (Ignored Checks)
 						if(atmosphere.species_configuration[i].delta_r.has_value())
 						{ 
-							std::cout << "[Configuration::validateConfiguration] delta_r (r) was ignored for LogNormal." << std::endl;
+							logger::global().warn("Configuration::validateConfiguration") << "delta_r (r) was ignored for LogNormal.";
 							atmosphere.species_configuration[i].delta_r.reset(); 
 						}
 						if(atmosphere.species_configuration[i].rect_r_mean.has_value())
 						{ 
-							std::cout << "[Configuration::validateConfiguration] rect_r_mean (r_mean) was ignored for LogNormal." << std::endl;
+							logger::global().warn("Configuration::validateConfiguration") << "rect_r_mean (r_mean) was ignored for LogNormal.";
 							atmosphere.species_configuration[i].rect_r_mean.reset(); 
 						}
 						if(atmosphere.species_configuration[i].rect_width.has_value())
 						{ 
-							std::cout << "[Configuration::validateConfiguration] rect_width (width) was ignored for LogNormal." << std::endl;
+							logger::global().warn("Configuration::validateConfiguration") << "rect_width (width) was ignored for LogNormal.";
 							atmosphere.species_configuration[i].rect_width.reset(); 
 						}
 						if(atmosphere.species_configuration[i].gd_a.has_value())
 						{ 
-							std::cout << "[Configuration::validateConfiguration] gd_a (a) was ignored for LogNormal." << std::endl;
+							logger::global().warn("Configuration::validateConfiguration") << "gd_a (a) was ignored for LogNormal.";
 							atmosphere.species_configuration[i].gd_a.reset(); 
 						}
 						if(atmosphere.species_configuration[i].gd_b.has_value())
 						{ 
-							std::cout << "[Configuration::validateConfiguration] gd_b (b) was ignored for LogNormal." << std::endl;
+							logger::global().warn("Configuration::validateConfiguration") << "gd_b (b) was ignored for LogNormal.";
 							atmosphere.species_configuration[i].gd_b.reset(); 
 						}
 						if(atmosphere.species_configuration[i].mgd_r_c.has_value())
 						{ 
-							std::cout << "[Configuration::validateConfiguration] mgd_r_c (r_c) was ignored for LogNormal." << std::endl;
+							logger::global().warn("Configuration::validateConfiguration") << "mgd_r_c (r_c) was ignored for LogNormal.";
 							atmosphere.species_configuration[i].mgd_r_c.reset(); 
 						}
 						if(atmosphere.species_configuration[i].mgd_alpha.has_value())
 						{ 
-							std::cout << "[Configuration::validateConfiguration] mgd_alpha (alpha) was ignored for LogNormal." << std::endl;
+							logger::global().warn("Configuration::validateConfiguration") << "mgd_alpha (alpha) was ignored for LogNormal.";
 							atmosphere.species_configuration[i].mgd_alpha.reset(); 
 						}
 						if(atmosphere.species_configuration[i].mgd_gamma.has_value())
 						{ 
-							std::cout << "[Configuration::validateConfiguration] mgd_gamma (gamma) was ignored for LogNormal." << std::endl;
+							logger::global().warn("Configuration::validateConfiguration") << "mgd_gamma (gamma) was ignored for LogNormal.";
 							atmosphere.species_configuration[i].mgd_gamma.reset(); 
 						}
 						if(atmosphere.species_configuration[i].pl_delta.has_value())
 						{ 
-							std::cout << "[Configuration::validateConfiguration] pl_delta (delta) was ignored for LogNormal." << std::endl;
+							logger::global().warn("Configuration::validateConfiguration") << "pl_delta (delta) was ignored for LogNormal.";
 							atmosphere.species_configuration[i].pl_delta.reset(); 
 						}
 						if(atmosphere.species_configuration[i].pl_r1.has_value())
 						{ 
-							std::cout << "[Configuration::validateConfiguration] pl_r1 (r_min) was ignored for LogNormal." << std::endl;
+							logger::global().warn("Configuration::validateConfiguration") << "pl_r1 (r_min) was ignored for LogNormal.";
 							atmosphere.species_configuration[i].pl_r1.reset(); 
 						}
 						if(atmosphere.species_configuration[i].pl_r2.has_value())
 						{ 
-							std::cout << "[Configuration::validateConfiguration] pl_r2 (r_max) was ignored for LogNormal." << std::endl;
+							logger::global().warn("Configuration::validateConfiguration") << "pl_r2 (r_max) was ignored for LogNormal.";
 							atmosphere.species_configuration[i].pl_r2.reset(); 
 						}
 					}
@@ -2123,67 +2225,69 @@ inline void Configuration::validateConfiguration(void)
 						// 1. 必須パラメータのチェック
 						if(!atmosphere.species_configuration[i].gd_a.has_value())
 						{
+							logger::global().fatal("Configuration::validateConfiguration") << "Gamma scale parameter (a) for species "+ std::to_string(i) + " was not specified.";
 							throw std::runtime_error("[Configuration::validateConfiguration] Gamma scale parameter (a) for species "+ std::to_string(i) + " was not specified.");
 						}
 						if(!atmosphere.species_configuration[i].gd_b.has_value())
 						{
+							logger::global().fatal("Configuration::validateConfiguration") << "Gamma shape parameter (b) for species "+ std::to_string(i) + " was not specified.";
 							throw std::runtime_error("[Configuration::validateConfiguration] Gamma shape parameter (b) for species "+ std::to_string(i) + " was not specified.");
 						}
 
 						// 2. 他の全分布パラメータの無視とリセット (Ignored Checks)
 						if(atmosphere.species_configuration[i].delta_r.has_value())
 						{ 
-							std::cout << "[Configuration::validateConfiguration] delta_r (r) was ignored for Gamma." << std::endl;
+							logger::global().warn("Configuration::validateConfiguration") << "delta_r (r) was ignored for Gamma.";
 							atmosphere.species_configuration[i].delta_r.reset(); 
 						}
 						if(atmosphere.species_configuration[i].rect_r_mean.has_value())
 						{ 
-							std::cout << "[Configuration::validateConfiguration] rect_r_mean (r_mean) was ignored for Gamma." << std::endl;
+							logger::global().warn("Configuration::validateConfiguration") << "rect_r_mean (r_mean) was ignored for Gamma.";
 							atmosphere.species_configuration[i].rect_r_mean.reset(); 
 						}
 						if(atmosphere.species_configuration[i].rect_width.has_value())
 						{ 
-							std::cout << "[Configuration::validateConfiguration] rect_width (width) was ignored for Gamma." << std::endl;
+							logger::global().warn("Configuration::validateConfiguration") << "rect_width (width) was ignored for Gamma.";
 							atmosphere.species_configuration[i].rect_width.reset(); 
 						}
 						if(atmosphere.species_configuration[i].lnd_r_g.has_value())
 						{ 
-							std::cout << "[Configuration::validateConfiguration] lnd_r_g (r_g) was ignored for Gamma." << std::endl;
+							logger::global().warn("Configuration::validateConfiguration") << "lnd_r_g (r_g) was ignored for Gamma.";
 							atmosphere.species_configuration[i].lnd_r_g.reset(); 
 						}
 						if(atmosphere.species_configuration[i].lnd_sigma_g.has_value())
 						{ 
-							std::cout << "[Configuration::validateConfiguration] lnd_sigma_g (sigma_g) was ignored for Gamma." << std::endl;
+							logger::global().warn("Configuration::validateConfiguration") << "lnd_sigma_g (sigma_g) was ignored for Gamma.";
 							atmosphere.species_configuration[i].lnd_sigma_g.reset(); 
 						}
 						if(atmosphere.species_configuration[i].mgd_r_c.has_value())
 						{ 
-							std::cout << "[Configuration::validateConfiguration] mgd_r_c (r_c) was ignored for Gamma." << std::endl;
+							logger::global().warn("Configuration::validateConfiguration") << "mgd_r_c (r_c) was ignored for Gamma.";
 							atmosphere.species_configuration[i].mgd_r_c.reset(); 
 						}
 						if(atmosphere.species_configuration[i].mgd_alpha.has_value())
 						{ 
-							std::cout << "[Configuration::validateConfiguration] mgd_alpha (alpha) was ignored for Gamma." << std::endl;
+							logger::global().warn("Configuration::validateConfiguration") << "mgd_alpha (alpha) was ignored for Gamma.";
 							atmosphere.species_configuration[i].mgd_alpha.reset(); 
 						}
 						if(atmosphere.species_configuration[i].mgd_gamma.has_value())
 						{ 
-							std::cout << "[Configuration::validateConfiguration] mgd_gamma (gamma) was ignored for Gamma." << std::endl;
+							logger::global().warn("Configuration::validateConfiguration") << "mgd_gamma (gamma) was ignored for Gamma.";
 							atmosphere.species_configuration[i].mgd_gamma.reset(); 
 						}
 						if(atmosphere.species_configuration[i].pl_delta.has_value())
 						{ 
-							std::cout << "[Configuration::validateConfiguration] pl_delta (delta) was ignored for Gamma." << std::endl;
+							logger::global().warn("Configuration::validateConfiguration") << "pl_delta (delta) was ignored for Gamma.";
 							atmosphere.species_configuration[i].pl_delta.reset(); 
 						}
 						if(atmosphere.species_configuration[i].pl_r1.has_value())
 						{ 
-							std::cout << "[Configuration::validateConfiguration] pl_r1 (r_min) was ignored for Gamma." << std::endl;
+							logger::global().warn("Configuration::validateConfiguration") << "pl_r1 (r_min) was ignored for Gamma.";
 							atmosphere.species_configuration[i].pl_r1.reset(); 
 						}
 						if(atmosphere.species_configuration[i].pl_r2.has_value())
 						{ 
-							std::cout << "[Configuration::validateConfiguration] pl_r2 (r_max) was ignored for Gamma." << std::endl;
+							logger::global().warn("Configuration::validateConfiguration") << "pl_r2 (r_max) was ignored for Gamma.";
 							atmosphere.species_configuration[i].pl_r2.reset(); 
 						}
 					}
@@ -2192,67 +2296,70 @@ inline void Configuration::validateConfiguration(void)
 						// 1. 必須パラメータのチェック
 						if(!atmosphere.species_configuration[i].mgd_r_c.has_value())
 						{
+							logger::global().fatal("Configuration::validateConfiguration") << "Modified Gamma characteristic radius (r_c) for species "+ std::to_string(i) + " was not specified.";
 							throw std::runtime_error("[Configuration::validateConfiguration] Modified Gamma characteristic radius (r_c) for species "+ std::to_string(i) + " was not specified.");
 						}
 						if(!atmosphere.species_configuration[i].mgd_alpha.has_value())
 						{
+							logger::global().fatal("Configuration::validateConfiguration") << "Modified Gamma alpha shape (alpha) for species "+ std::to_string(i) + " was not specified.";
 							throw std::runtime_error("[Configuration::validateConfiguration] Modified Gamma alpha shape (alpha) for species "+ std::to_string(i) + " was not specified.");
 						}
 						if(!atmosphere.species_configuration[i].mgd_gamma.has_value())
 						{
+							logger::global().fatal("Configuration::validateConfiguration") << "Modified Gamma gamma spread (gamma) for species "+ std::to_string(i) + " was not specified.";
 							throw std::runtime_error("[Configuration::validateConfiguration] Modified Gamma gamma spread (gamma) for species "+ std::to_string(i) + " was not specified.");
 						}
 
 						// 2. 他の全分布パラメータの無視とリセット (Ignored Checks)
 						if(atmosphere.species_configuration[i].delta_r.has_value())
 						{ 
-							std::cout << "[Configuration::validateConfiguration] delta_r (r) was ignored for Modified Gamma." << std::endl;
+							logger::global().warn("Configuration::validateConfiguration") << "delta_r (r) was ignored for Modified Gamma.";
 							atmosphere.species_configuration[i].delta_r.reset(); 
 						}
 						if(atmosphere.species_configuration[i].rect_r_mean.has_value())
 						{ 
-							std::cout << "[Configuration::validateConfiguration] rect_r_mean (r_mean) was ignored for Modified Gamma." << std::endl;
+							logger::global().warn("Configuration::validateConfiguration") << "rect_r_mean (r_mean) was ignored for Modified Gamma.";
 							atmosphere.species_configuration[i].rect_r_mean.reset(); 
 						}
 						if(atmosphere.species_configuration[i].rect_width.has_value())
 						{ 
-							std::cout << "[Configuration::validateConfiguration] rect_width (width) was ignored for Modified Gamma." << std::endl;
+							logger::global().warn("Configuration::validateConfiguration") << "rect_width (width) was ignored for Modified Gamma.";
 							atmosphere.species_configuration[i].rect_width.reset(); 
 						}
 						if(atmosphere.species_configuration[i].lnd_r_g.has_value())
 						{ 
-							std::cout << "[Configuration::validateConfiguration] lnd_r_g (r_g) was ignored for Modified Gamma." << std::endl;
+							logger::global().warn("Configuration::validateConfiguration") << "lnd_r_g (r_g) was ignored for Modified Gamma.";
 							atmosphere.species_configuration[i].lnd_r_g.reset(); 
 						}
 						if(atmosphere.species_configuration[i].lnd_sigma_g.has_value())
 						{ 
-							std::cout << "[Configuration::validateConfiguration] lnd_sigma_g (sigma_g) was ignored for Modified Gamma." << std::endl;
+							logger::global().warn("Configuration::validateConfiguration") << "lnd_sigma_g (sigma_g) was ignored for Modified Gamma.";
 							atmosphere.species_configuration[i].lnd_sigma_g.reset(); 
 						}
 						if(atmosphere.species_configuration[i].gd_a.has_value())
 						{ 
-							std::cout << "[Configuration::validateConfiguration] gd_a (a) was ignored for Modified Gamma." << std::endl;
+							logger::global().warn("Configuration::validateConfiguration") << "gd_a (a) was ignored for Modified Gamma.";
 							atmosphere.species_configuration[i].gd_a.reset(); 
 						}
 						if(atmosphere.species_configuration[i].gd_b.has_value())
 						{ 
-							std::cout << "[Configuration::validateConfiguration] gd_b (b) was ignored for Modified Gamma." << std::endl;
+							logger::global().warn("Configuration::validateConfiguration") << "gd_b (b) was ignored for Modified Gamma.";
 							atmosphere.species_configuration[i].gd_b.reset(); 
 						}
 						// mgd_r_c, mgd_alpha, mgd_gamma は必須
 						if(atmosphere.species_configuration[i].pl_delta.has_value())
 						{ 
-							std::cout << "[Configuration::validateConfiguration] pl_delta (delta) was ignored for Modified Gamma." << std::endl;
+							logger::global().warn("Configuration::validateConfiguration") << "pl_delta (delta) was ignored for Modified Gamma.";
 							atmosphere.species_configuration[i].pl_delta.reset(); 
 						}
 						if(atmosphere.species_configuration[i].pl_r1.has_value())
 						{ 
-							std::cout << "[Configuration::validateConfiguration] pl_r1 (r_min) was ignored for Modified Gamma." << std::endl;
+							logger::global().warn("Configuration::validateConfiguration") << "pl_r1 (r_min) was ignored for Modified Gamma.";
 							atmosphere.species_configuration[i].pl_r1.reset(); 
 						}
 						if(atmosphere.species_configuration[i].pl_r2.has_value())
 						{ 
-							std::cout << "[Configuration::validateConfiguration] pl_r2 (r_max) was ignored for Modified Gamma." << std::endl;
+							logger::global().warn("Configuration::validateConfiguration") << "pl_r2 (r_max) was ignored for Modified Gamma.";
 							atmosphere.species_configuration[i].pl_r2.reset(); 
 						}
 					}
@@ -2261,72 +2368,76 @@ inline void Configuration::validateConfiguration(void)
 						// 1. 必須パラメータのチェック
 						if(!atmosphere.species_configuration[i].pl_delta.has_value())
 						{
+							logger::global().fatal("Configuration::validateConfiguration") << "Power Law exponent (delta) for species "+ std::to_string(i) + " was not specified.";
 							throw std::runtime_error("[Configuration::validateConfiguration] Power Law exponent (delta) for species "+ std::to_string(i) + " was not specified.");
 						}
 						if(!atmosphere.species_configuration[i].pl_r1.has_value())
 						{
+							logger::global().fatal("Configuration::validateConfiguration") << "Power Law minimum radius (r1) for species "+ std::to_string(i) + " was not specified.";
 							throw std::runtime_error("[Configuration::validateConfiguration] Power Law minimum radius (r1) for species "+ std::to_string(i) + " was not specified.");
 						}
 						if(!atmosphere.species_configuration[i].pl_r2.has_value())
 						{
+							logger::global().fatal("Configuration::validateConfiguration") << "Power Law maximum radius (r2) for species "+ std::to_string(i) + " was not specified.";
 							throw std::runtime_error("[Configuration::validateConfiguration] Power Law maximum radius (r2) for species "+ std::to_string(i) + " was not specified.");
 						}
 
 						// 1b. 物理的整合性チェック
 						if(atmosphere.species_configuration[i].pl_r1.value() >= atmosphere.species_configuration[i].pl_r2.value())
 						{
+							logger::global().fatal("Configuration::validateConfiguration") << "Power Law error: pl_r1 (r1) must be strictly less than pl_r2 (r2).";
 							throw std::runtime_error("[Configuration::validateConfiguration] Power Law error: pl_r1 (r1) must be strictly less than pl_r2 (r2).");
 						}
 
 						// 2. 他の全分布パラメータの無視とリセット (Ignored Checks)
 						if(atmosphere.species_configuration[i].delta_r.has_value())
 						{ 
-							std::cout << "[Configuration::validateConfiguration] delta_r (r) was ignored for Power Law." << std::endl;
+							logger::global().warn("Configuration::validateConfiguration") << "delta_r (r) was ignored for Power Law.";
 							atmosphere.species_configuration[i].delta_r.reset(); 
 						}
 						if(atmosphere.species_configuration[i].rect_r_mean.has_value())
 						{ 
-							std::cout << "[Configuration::validateConfiguration] rect_r_mean (r_mean) was ignored for Power Law." << std::endl;
+							logger::global().warn("Configuration::validateConfiguration") << "rect_r_mean (r_mean) was ignored for Power Law.";
 							atmosphere.species_configuration[i].rect_r_mean.reset(); 
 						}
 						if(atmosphere.species_configuration[i].rect_width.has_value())
 						{ 
-							std::cout << "[Configuration::validateConfiguration] rect_width (width) was ignored for Power Law." << std::endl;
+							logger::global().warn("Configuration::validateConfiguration") << "rect_width (width) was ignored for Power Law.";
 							atmosphere.species_configuration[i].rect_width.reset(); 
 						}
 						if(atmosphere.species_configuration[i].lnd_r_g.has_value())
 						{ 
-							std::cout << "[Configuration::validateConfiguration] lnd_r_g (r_g) was ignored for Power Law." << std::endl;
+							logger::global().warn("Configuration::validateConfiguration") << "lnd_r_g (r_g) was ignored for Power Law.";
 							atmosphere.species_configuration[i].lnd_r_g.reset(); 
 						}
 						if(atmosphere.species_configuration[i].lnd_sigma_g.has_value())
 						{ 
-							std::cout << "[Configuration::validateConfiguration] lnd_sigma_g (sigma_g) was ignored for Power Law." << std::endl;
+							logger::global().warn("Configuration::validateConfiguration") << "lnd_sigma_g (sigma_g) was ignored for Power Law.";
 							atmosphere.species_configuration[i].lnd_sigma_g.reset(); 
 						}
 						if(atmosphere.species_configuration[i].gd_a.has_value())
 						{ 
-							std::cout << "[Configuration::validateConfiguration] gd_a (a) was ignored for Power Law." << std::endl;
+							logger::global().warn("Configuration::validateConfiguration") << "gd_a (a) was ignored for Power Law.";
 							atmosphere.species_configuration[i].gd_a.reset(); 
 						}
 						if(atmosphere.species_configuration[i].gd_b.has_value())
 						{ 
-							std::cout << "[Configuration::validateConfiguration] gd_b (b) was ignored for Power Law." << std::endl;
+							logger::global().warn("Configuration::validateConfiguration") << "gd_b (b) was ignored for Power Law.";
 							atmosphere.species_configuration[i].gd_b.reset(); 
 						}
 						if(atmosphere.species_configuration[i].mgd_r_c.has_value())
 						{ 
-							std::cout << "[Configuration::validateConfiguration] mgd_r_c (r_c) was ignored for Power Law." << std::endl;
+							logger::global().warn("Configuration::validateConfiguration") << "mgd_r_c (r_c) was ignored for Power Law.";
 							atmosphere.species_configuration[i].mgd_r_c.reset(); 
 						}
 						if(atmosphere.species_configuration[i].mgd_alpha.has_value())
 						{ 
-							std::cout << "[Configuration::validateConfiguration] mgd_alpha (alpha) was ignored for Power Law." << std::endl;
+							logger::global().warn("Configuration::validateConfiguration") << "mgd_alpha (alpha) was ignored for Power Law.";
 							atmosphere.species_configuration[i].mgd_alpha.reset(); 
 						}
 						if(atmosphere.species_configuration[i].mgd_gamma.has_value())
 						{ 
-							std::cout << "[Configuration::validateConfiguration] mgd_gamma (gamma) was ignored for Power Law." << std::endl;
+							logger::global().warn("Configuration::validateConfiguration") << "mgd_gamma (gamma) was ignored for Power Law.";
 							atmosphere.species_configuration[i].mgd_gamma.reset(); 
 						}
 					}
@@ -2336,12 +2447,14 @@ inline void Configuration::validateConfiguration(void)
 				// 高度・波長依存性
 				if(!atmosphere.species_configuration[i].refractive_index_type.has_value())
 				{
+					logger::global().fatal("Configuration::validateConfiguration") << "refractive_index_type for species "+ std::to_string(i) + " was not specified.";
 					throw std::runtime_error("[Configuration::validateConfiguration] refractive_index_type for species "+ std::to_string(i) + " was not specified.");
 				}
 				else if(atmosphere.species_configuration[i].refractive_index_type.value() == RefractiveIndexType::Constant)
 				{
 					if(!atmosphere.species_configuration[i].nr.has_value() || !atmosphere.species_configuration[i].ni.has_value())
 					{
+						logger::global().fatal("Configuration::validateConfiguration") << "refractive_index value for species "+ std::to_string(i) + " was not specified.";
 						throw std::runtime_error("[Configuration::validateConfiguration] refractive_index value for species "+ std::to_string(i) + " was not specified.");
 					}
 				}
@@ -2355,10 +2468,12 @@ inline void Configuration::validateConfiguration(void)
 
 					if(!atmosphere.species_configuration[i].filename_refractive_index_spectral.has_value())
 					{
+						logger::global().fatal("Configuration::validateConfiguration") << "filename_refractive_index_spectral value for species "+ std::to_string(i) + " was not specified.";
 						throw std::runtime_error("[Configuration::validateConfiguration] filename_refractive_index_spectral value for species "+ std::to_string(i) + " was not specified.");
 					}
 					if(!atmosphere.species_configuration[i].varname_refractive_index_spectral_spectral.has_value() || !atmosphere.species_configuration[i].varname_refractive_index_spectral_nr.has_value() || !atmosphere.species_configuration[i].varname_refractive_index_spectral_ni.has_value())
 					{
+						logger::global().fatal("Configuration::validateConfiguration") << "Variable name of refractive index spectral file for species "+ std::to_string(i) + " was not specified.";
 						throw std::runtime_error("[Configuration::validateConfiguration] Variable name of refractive index spectral file for species "+ std::to_string(i) + " was not specified.");
 					}
 				}
@@ -2366,6 +2481,7 @@ inline void Configuration::validateConfiguration(void)
 				{
 					if(atmosphere.species_configuration[i].refractive_index_vertical_profile.empty())
 					{
+						logger::global().fatal("Configuration::validateConfiguration") << "Vertical refractive index profile table for species " + std::to_string(i) + " is empty.";
 						throw std::runtime_error("[Configuration::validateConfiguration] Vertical refractive index profile table for species " + std::to_string(i) + " is empty.");
 					}
 					
@@ -2375,6 +2491,7 @@ inline void Configuration::validateConfiguration(void)
 						{
 							if(atmosphere.z_center.size() != atmosphere.species_configuration[i].refractive_index_vertical_profile.size())
 							{
+								logger::global().fatal("Configuration::validateConfiguration") << "Refractive index vertical profile layering for species " + std::to_string(i) + " does not match to atmosphere.";
 								throw std::runtime_error("[Configuration::validateConfiguration] Refractive index vertical profile layering for species " + std::to_string(i) + " does not match to atmosphere.");
 							}
 						}
@@ -2382,6 +2499,7 @@ inline void Configuration::validateConfiguration(void)
 						{							
 							if(atmosphere.z_edge.size() - 1 != atmosphere.species_configuration[i].refractive_index_vertical_profile.size())
 							{
+								logger::global().fatal("Configuration::validateConfiguration") << "Refractive index vertical profile layering for species " + std::to_string(i) + " does not match to atmosphere.";
 								throw std::runtime_error("[Configuration::validateConfiguration] Refractive index vertical profile layering for species " + std::to_string(i) + " does not match to atmosphere.");
 							}
 						}
@@ -2391,13 +2509,13 @@ inline void Configuration::validateConfiguration(void)
 						if(!atmosphere.species_configuration[i].refractive_index_vertical_profile_interpolation.has_value())
 						{
 							atmosphere.species_configuration[i].refractive_index_vertical_profile_interpolation = VerticalProfileInterpolation::Linear;
-							std::cout << "[Configuration::validateConfiguration] Refractive Index Vertical profile interpolation for species "+ std::to_string(i) + " was not specified. Automatically set to linear." << std::endl;
+							logger::global().warn("Configuration::validateConfiguration") << "Refractive Index Vertical profile interpolation for species "+ std::to_string(i) + " was not specified. Automatically set to linear.";
 						}
 						
 						if(!atmosphere.species_configuration[i].unit_refractive_index_vertical_profile.has_value())
 						{
 							atmosphere.species_configuration[i].unit_refractive_index_vertical_profile = atmosphere.z_unit.value();
-							std::cout << "[Configuration::validateConfiguration] z unit of refractive index vertica profile for species " + std::to_string(i) + " was not specified. Automatically set to " << atmosphere.z_unit.value() << "." << std::endl;
+							logger::global().warn("Configuration::validateConfiguration") << "z unit of refractive index vertica profile for species " + std::to_string(i) + " was not specified. Automatically set to " << atmosphere.z_unit.value() << ".";
 						}
 					}
 				}
@@ -2410,23 +2528,26 @@ inline void Configuration::validateConfiguration(void)
 
 					if(!atmosphere.species_configuration[i].varname_refractive_index_spectral_vertical_altitude.has_value() || !atmosphere.species_configuration[i].varname_refractive_index_spectral_vertical_spectral.has_value() || !atmosphere.species_configuration[i].varname_refractive_index_spectral_vertical_nr.has_value() || !atmosphere.species_configuration[i].varname_refractive_index_spectral_vertical_ni.has_value())
 					{
+						logger::global().fatal("Configuration::validateConfiguration") << "Variable name of refractive index spectral-vertical file for species "+ std::to_string(i) + " was not specified.";
 						throw std::runtime_error("[Configuration::validateConfiguration] Variable name of refractive index spectral-vertical file for species "+ std::to_string(i) + " was not specified.");
 					}
 					
 					if(!atmosphere.species_configuration[i].filename_refractive_index_spectral_vertical.has_value())
 					{
+						logger::global().fatal("Configuration::validateConfiguration") << "filename_refractive_index_spectral_vertical value for species "+ std::to_string(i) + " was not specified.";
 						throw std::runtime_error("[Configuration::validateConfiguration] filename_refractive_index_spectral_vertical value for species "+ std::to_string(i) + " was not specified.");
 					}
 
 					if(!atmosphere.species_configuration[i].refractive_index_vertical_profile_interpolation.has_value())
 					{
 						atmosphere.species_configuration[i].refractive_index_vertical_profile_interpolation = VerticalProfileInterpolation::Linear;
-						std::cout << "[Configuration::validateConfiguration] Refractive Index Vertical profile interpolation for species "+ std::to_string(i) + " was not specified. Automatically set to linear." << std::endl;
+						logger::global().warn("Configuration::validateConfiguration") << "Refractive Index Vertical profile interpolation for species "+ std::to_string(i) + " was not specified. Automatically set to linear.";
 					}
 				}
 			}
 			else
 			{
+				logger::global().fatal("Configuration::validateConfiguration") << "Only Mie scattering is supported for aerosol species "+ std::to_string(i) + ".";
 				throw std::runtime_error("[Configuration::validateConfiguration] Only Mie scattering is supported for aerosol species "+ std::to_string(i) + ".");
 			}
 		}
@@ -2437,6 +2558,7 @@ inline void Configuration::validateConfiguration(void)
 	{
 		if(!atmosphere.filename_hitran.has_value())
 		{
+			logger::global().fatal("Configuration::validateConfiguration") << "HITRAN netCDF file is not specified.";
 			throw std::runtime_error("[Configuration::validateConfiguration] HITRAN netCDF file is not specified.");
 		}
 		// diluentの指定があるか確認
@@ -2445,7 +2567,7 @@ inline void Configuration::validateConfiguration(void)
 		{
 			atmosphere.diluent_species.push_back("Air");
 			atmosphere.diluent_ratio.push_back(1.0);
-			std::cout << "[Configuration::validateConfiguration] Diluent is not specified. Automatically set to Air = 1.0." << std::endl;
+			logger::global().warn("Configuration::validateConfiguration") << "Diluent is not specified. Automatically set to Air = 1.0.";
 		}
 		else
 		{
@@ -2467,6 +2589,7 @@ inline void Configuration::validateConfiguration(void)
 				}
 				if(found == false)
 				{
+					logger::global().fatal("Configuration::validateConfiguration") << "Unknown diluent species name: " + atmosphere.diluent_species[i] + ".";
 					throw std::runtime_error("[Configuration::validateConfiguration] Unknown diluent species name: " + atmosphere.diluent_species[i] + ".");
 				}
 			}
@@ -2474,6 +2597,7 @@ inline void Configuration::validateConfiguration(void)
 			{
 				if(dil_count[i] > 1)
 				{
+					logger::global().fatal("Configuration::validateConfiguration") << "Diluent species " + dil_species[i] + " is duplicate.";
 					throw std::runtime_error("[Configuration::validateConfiguration] Diluent species " + dil_species[i] + " is duplicate.");
 				}
 			}
