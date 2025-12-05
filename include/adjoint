@@ -252,6 +252,16 @@ inline std::vector<RadiativeLayer> addLayer_adjoint(const RadiativeLayer &layer_
 		adj_top.transmittance_m_bottom_sin[m].setZero();
 	}
 
+	adj_bot.source_down += adj_result.source_down;
+
+	for(int m = 0; m <= geometry.M; m ++) 
+	{
+		adj_bot.reflectance_m_bottom_cos[m] += adj_result.reflectance_m_bottom_cos[m];
+		adj_bot.transmittance_m_bottom_cos[m] += adj_result.transmittance_m_bottom_cos[m];
+		// adj_bot.reflectance_m_bottom_sin[m] += adj_result.reflectance_m_bottom_sin[m];
+		// adj_bot.transmittance_m_bottom_sin[m] += adj_result.transmittance_m_bottom_sin[m];
+	}
+
 	Eigen::VectorXd exp_tau_top = Eigen::VectorXd::Zero(geometry.Ntheta);
 	Eigen::VectorXd exp_tau_bottom = Eigen::VectorXd::Zero(geometry.Ntheta);
 	Eigen::VectorXd adj_exp_tau_top = Eigen::VectorXd::Zero(geometry.Ntheta);
@@ -332,7 +342,8 @@ inline std::vector<RadiativeLayer> addLayer_adjoint(const RadiativeLayer &layer_
 			
 			Eigen::VectorXd adj_VecA = T_top_bot_W.transpose() * adj_TRE;
 			adj_VecA += E_top * adj_TRE;
-			adj_exp_tau_top += adj_TRE.cwiseProduct(layer_bottom.reflectance_m_top_cos[m] * geometry.WMU * layer_top.source_down);
+			Eigen::VectorXd R_bot_W_S_down = layer_bottom.reflectance_m_top_cos[m] * geometry.WMU * layer_top.source_down;
+			adj_exp_tau_top += adj_TRE.cwiseProduct(R_bot_W_S_down);
 			
 			Eigen::VectorXd W_VecA = geometry.WMU * layer_bottom.reflectance_m_top_cos[m] * geometry.WMU * layer_top.source_down;
 			adj_top.transmittance_m_bottom_cos[m] += adj_TRE * W_VecA.transpose();

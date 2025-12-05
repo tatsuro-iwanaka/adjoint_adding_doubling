@@ -354,8 +354,8 @@ class RadiativeLayer
 		std::vector<Eigen::MatrixXd> transmittance_m_top_sin;
 		std::vector<Eigen::MatrixXd> transmittance_m_bottom_sin;
 
-		Eigen::VectorXd source_up;
-		Eigen::VectorXd source_down;
+		Eigen::MatrixXd source_up;
+		Eigen::MatrixXd source_down;
 
 		int n_doubling;
 
