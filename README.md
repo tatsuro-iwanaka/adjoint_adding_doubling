@@ -11,6 +11,31 @@ This repository implements the **Adding-Doubling method** for radiative transfer
 
 The implementation explicitly handles the **direct beam attenuation** (matrix $E$) and accounts for the **azimuthal dependence** of the phase function.
 
+## Numerical Integration (Gauss-Radau Quadrature)
+
+The code employs **Gauss-Radau quadrature** for discretizing the zenith angle $\mu$. Unlike the standard Gauss-Legendre quadrature, the Gauss-Radau method fixes one integration node at the boundary of the interval.
+
+### Mathematical Formulation
+The integral of a function $f(\mu)$ over $[0, 1]$ is approximated as:
+
+$$
+\int_0^1 f(\mu) d\mu \approx \sum_{i=1}^{n} w_i f(\mu_i)
+$$
+
+where the last node is fixed at $\mu_n = 1.0$. This is particularly advantageous for radiative transfer problems where the radiation field at the vertical boundary ($\mu=1$) is of specific interest and should be calculated explicitly without extrapolation.
+
+### Algorithm
+The nodes $x_i$ (in the standard interval $[-1, 1]$) and weights $w_i^{gr}$ are computed using the **Golub-Welsch algorithm** adapted for Radau quadrature:
+
+1.  **Jacobi Matrix Construction**: A symmetric tridiagonal matrix $J$ is constructed using the recurrence relation coefficients of the Jacobi polynomials $P_{n-1}^{(1, 0)}(x)$ (fixing the endpoint at $+1$).
+2.  **Eigenvalue Decomposition**: The eigenvalues of $J$ correspond to the internal nodes $x_i$.
+3.  **Mapping**: The nodes and weights are linearly mapped from $[-1, 1]$ to the physical interval $[0, 1]$:
+    $$
+    \mu_i = \frac{x_i + 1}{2}, \quad w_i = \frac{w_i^{gr}}{2}
+    $$
+
+This method integrates polynomials of degree up to $2n-2$ exactly.
+
 ## Matrix Formulation of Doubling Equations
 
 The doubling process combines two identical layers (top and bottom) with optical thickness $\tau$ to form a layer of thickness $2\tau$.
