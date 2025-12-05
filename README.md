@@ -29,7 +29,11 @@ The nodes $x_i$ (in the standard interval $[-1, 1]$) and weights $w_i^{gr}$ are 
 
 1.  **Jacobi Matrix Construction**: A symmetric tridiagonal matrix $J$ is constructed using the recurrence relation coefficients of the Jacobi polynomials $P_{n-1}^{(1, 0)}(x)$ (fixing the endpoint at $+1$).
 2.  **Eigenvalue Decomposition**: The eigenvalues of $J$ correspond to the internal nodes $x_i$.
-3.  **Mapping**: The nodes and weights are linearly mapped from $[-1, 1]$ to the physical interval $[0, 1]$:　$\mu_i = \frac{x_i + 1}{2}, \quad w_i = \frac{w_i^{gr}}{2}$
+3.  **Mapping**: The nodes and weights are linearly mapped from $[-1, 1]$ to the physical interval $[0, 1]$.
+
+$$
+\mu_i = \frac{x_i + 1}{2}, \quad w_i = \frac{w_i^{gr}}{2}
+$$
 
 This method integrates polynomials of degree up to $2n-2$ exactly.
 
