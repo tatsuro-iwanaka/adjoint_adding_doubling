@@ -1,4 +1,5 @@
 #include <iostream>
+#include <fstream>
 #include <iomanip>
 #include <cmath>
 #include <vector>
@@ -176,12 +177,12 @@ aad::core::RadiativeLayer initializeIsotropicLayer(double target_tau, double ome
 
 int main(void)
 {
-	int n_layer = 20;
+	int n_layer = 21;
 	int n_theta = 10;
 	std::vector<double> layer_taus(n_layer, 0.2);
 	std::vector<double> layer_omegas(n_layer);
 
-	int n_scattering_angle = 1001;
+	int n_scattering_angle = 1201;
 	std::vector<double> theta_grid(n_scattering_angle);
 	for(int i = 0; i < n_scattering_angle; ++i)
 	{
@@ -231,6 +232,7 @@ int main(void)
 	adj_result.reflectance_m_top_cos[0](0, 0) = 1.0;
 	auto adj_layers = aad::core::computeAtmosphere_adjoint(layers, geo, adj_result);
 
+	/*
 	{
 		std::cout << "Sensitivity on optical thickness" << std::endl;
 		std::cout << "Central Finite Difference" << std::endl;
@@ -384,6 +386,35 @@ int main(void)
 
 				std::cout << k << ", " << theta_grid[k] * 180.0 / std::numbers::pi << ", "<< grad_P_adj[k] << ", " << grad_fd << ", " << (grad_P_adj[k] - grad_fd) / grad_P_adj[k] << std::endl;
 			}
+		}
+	}
+	*/
+
+	std::ofstream output("layer_sensitivity.dat");
+
+	{
+		for(int i = 0; i < n_layer; i ++)
+		{
+			int target_layer = i;
+
+			double grad_tau = 0.0;
+			double grad_omega = 0.0;
+			std::vector<double> grad_P_adj(n_scattering_angle, 0.0);
+
+			aad::core::computeInitializationSensitivities(adj_layers[target_layer], layers[target_layer], layer_omegas[target_layer], geo, theta_grid, grad_tau, grad_omega, grad_P_adj);
+			
+			std::vector<int> check_indices = {0, n_scattering_angle/6*1, n_scattering_angle/6*2, n_scattering_angle/6*3, n_scattering_angle/6*4, n_scattering_angle/6*5, n_scattering_angle - 1};
+
+			double scaling_factor = 1.0 / std::pow(2.0, layers[target_layer].n_doubling);
+
+			output << i << ", " << grad_tau * scaling_factor << ", " << grad_omega;
+
+			for (int k : check_indices)
+			{
+				output << ", " << grad_P_adj[k];
+			}
+
+			output << std::endl;
 		}
 	}
 
