@@ -132,7 +132,7 @@ int main(void)
 		std::vector<double> mu0 = {0.1, 0.3, 0.5, 0.7, 0.9, 1.0};
 
 		std::vector<double> a = {0.2, 0.4, 0.6, 0.8, 0.9, 0.95, 0.99, 1.0};
-		std::vector<double> b = {0.03125, 0.0625, 0.125, 0.25, 0.5, 1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 1.0E3};
+		std::vector<double> b = {0.03125, 0.0625, 0.125, 0.25, 0.5, 1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 1.0E5};
 
 		int n_theta = 12;
 		auto geo = aad::core::generateGeometryGaussRadau(n_theta, n_theta * 4 - 1, (n_theta * 4 - 2) / 2);
@@ -147,14 +147,16 @@ int main(void)
 			output_12 << "===========================================================================================================" << std::endl;
 			output_12 << "VH. Table 12. b (total optical thickness) = " << b[i] << ". Intensities out at Top. Interpolated by spline." << std::endl; 
 			output_12 << "===========================================================================================================" << std::endl;
-			output_12 << "a, mu=0.1, mu=0.3, mu=0.5, mu=0.7, mu=0.9, mu=1.0" << std::endl;
+			output_12 << "a, mu=0.1, mu=0.3, mu=0.5, mu=0.7, mu=0.9, mu=1.0, flux" << std::endl;
 
 			std::vector<std::vector<std::vector<double>>> flux(a.size(), std::vector<std::vector<double>>(mu.size(), std::vector<double>(mu0.size(), 0.0)));
+			std::vector<std::vector<double>> flux_total(a.size(), std::vector<double>(mu.size(), 0.0));
 			std::vector<aad::core::RadiativeLayer> layers(n_layer);
 
 			for(int j = 0; j < a.size(); ++j)
 			{
 				std::vector<std::vector<double>> flux_raw(geo.mu.size(), std::vector<double>(geo.mu.size(), 0.0));
+				std::vector<double> flux_total_raw(geo.mu.size(), 0.0);
 
 				for(int k = 0; k < layers.size(); ++k)
 				{
@@ -168,11 +170,19 @@ int main(void)
 					for(int l = 0; l < geo.mu.size(); ++l)
 					{
 						flux_raw[k][l] = result.reflectance_m_bottom_cos[0](geo.mu.size() - 1 - k, geo.mu.size() - 1 - l);
+						flux_total_raw[k] += result.reflectance_m_bottom_cos[0](l, geo.mu.size() - 1 - k) * geo.weight(l) * geo.mu(l) * 2.0;
 					}
 				}
 
+				aad::utils::Spline spline_1d;
+				spline_1d.x = mu_grid;
+				spline_1d.f = flux_total_raw;
+				spline_1d.makeSpline();
+
 				for(int k = 0; k < mu.size(); ++k)
 				{
+					flux_total[j][k] = spline_1d.interpolation(mu[k]);
+
 					for(int l = 0; l < mu0.size(); ++l)
 					{
 						flux[j][k][l] = aad::utils::interpolate2DSpline(mu[k], mu0[l], mu_grid, mu_grid, flux_raw);
@@ -194,7 +204,7 @@ int main(void)
 						output_12 << ", " << flux[k][l][j];	
 					}
 
-					output_12 << std::endl;
+					output_12 << ", " << flux_total[k][j] << std::endl;
 				}
 
 				output_12 << std::endl;
@@ -234,7 +244,7 @@ int main(void)
 				output_35 << "=========================================================================================" << std::endl;
 				output_35 << "VH. Table 35. g = " << g[m] << ", b = " << b[i] << ". Reflection. Interpolated by spline." << std::endl; 
 				output_35 << "=========================================================================================" << std::endl;
-				output_35 << "a, mu=0.1, mu=0.3, mu=0.5, mu=0.7, mu=0.9, mu=1.0" << std::endl;
+				output_35 << "a, mu=0.1, mu=0.3, mu=0.5, mu=0.7, mu=0.9, mu=1.0, flux" << std::endl;
 
 				std::vector<aad::core::RadiativeLayer> layers(n_layer);
 				std::vector<double> HG_scattering_phase_angle(n_scattering_angle, 1.0);
@@ -245,10 +255,12 @@ int main(void)
 				}
 
 				std::vector<std::vector<std::vector<double>>> flux(a.size(), std::vector<std::vector<double>>(mu.size(), std::vector<double>(mu0.size(), 0.0)));
+				std::vector<std::vector<double>> flux_total(a.size(), std::vector<double>(mu.size(), 0.0));
 
 				for(int j = 0; j < a.size(); ++j)
 				{
 					std::vector<std::vector<double>> flux_raw(geo.mu.size(), std::vector<double>(geo.mu.size(), 0.0));
+					std::vector<double> flux_total_raw(geo.mu.size(), 0.0);
 
 					for(int k = 0; k < layers.size(); ++k)
 					{
@@ -262,11 +274,19 @@ int main(void)
 						for(int l = 0; l < geo.mu.size(); ++l)
 						{
 							flux_raw[k][l] = result.reflectance_m_bottom_cos[0](geo.mu.size() - 1 - k, geo.mu.size() - 1 - l);
+							flux_total_raw[k] += result.reflectance_m_bottom_cos[0](l, geo.mu.size() - 1 - k) * geo.weight(l) * geo.mu(l) * 2.0;
 						}
 					}
 
+					aad::utils::Spline spline_1d;
+					spline_1d.x = mu_grid;
+					spline_1d.f = flux_total_raw;
+					spline_1d.makeSpline();
+
 					for(int k = 0; k < mu.size(); ++k)
 					{
+						flux_total[j][k] = spline_1d.interpolation(mu[k]);
+
 						for(int l = 0; l < mu0.size(); ++l)
 						{
 							flux[j][k][l] = aad::utils::interpolate2DSpline(mu[k], mu0[l], mu_grid, mu_grid, flux_raw);
@@ -288,7 +308,7 @@ int main(void)
 							output_35 << ", " << flux[k][l][j];	
 						}
 
-						output_35 << std::endl;
+						output_35 << ", " << flux_total[k][j] << std::endl;
 					}
 
 					output_35 << std::endl;
