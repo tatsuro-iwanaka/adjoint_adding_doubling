@@ -5,6 +5,8 @@
 #include "Forward"
 #include "Adjoint"
 
+#include "../io/Logger"
+
 namespace aad::core
 {
 
@@ -63,6 +65,8 @@ inline std::vector<RadiativeLayer> computeAtmosphere_adjoint(const std::vector<R
 
 	for(int i = 0; i < n_layer; ++i)
 	{
+		io::global().info("computeAtmosphere_adjoint") << "Computing forward layer " << i << ".";
+
 		// Adding前の状態(Bottom側)を保存
 		// i=0(地表)のときは「何もない」ので保存不要、またはダミー
 		if (i > 0)
@@ -98,6 +102,8 @@ inline std::vector<RadiativeLayer> computeAtmosphere_adjoint(const std::vector<R
 
 	for(int i = n_layer - 1; i >= 0; --i)
 	{
+		io::global().info("computeAtmosphere_adjoint") << "Computing adjoint layer " << i << ".";
+
 		RadiativeLayer adj_layer_doubled;
 
 		// Un-Adding

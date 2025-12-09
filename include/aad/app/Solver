@@ -43,6 +43,7 @@ class RadiativeTransferSolver
 		void delta_approximation(const physics::DeltaApproximation&); // setter
 
 		physics::MonochromeData computeMonochrome(const physics::AtmosphereModel&, double, physics::SpectralCoordinateDimension, double, int);
+		physics::RadiativeTransferAjointResult computeMonochrome_adjoint(const physics::AtmosphereModel&, double, physics::SpectralCoordinateDimension, const core::RadiativeLayer&, double, int);
 };
 
 inline RadiativeTransferSolver::RadiativeTransferSolver()
@@ -65,7 +66,7 @@ inline void RadiativeTransferSolver::delta_approximation(const physics::DeltaApp
 	delta_approximation_ = delta_approximation_input;
 }
 
-inline physics::MonochromeData RadiativeTransferSolver::computeMonochrome(const physics::AtmosphereModel& atmosphere_model, double spectral, physics::SpectralCoordinateDimension dimension, double initial_optical_thickness = 1.0E-6, int n_scattering_angle = 1001)
+inline physics::MonochromeData RadiativeTransferSolver::computeMonochrome(const physics::AtmosphereModel& atmosphere_model, double spectral, physics::SpectralCoordinateDimension dimension, double initial_optical_thickness, int n_scattering_angle)
 {
 	initial_optical_thickness_ = initial_optical_thickness;
 	n_scattering_angle_ = n_scattering_angle;
@@ -91,7 +92,7 @@ inline physics::MonochromeData RadiativeTransferSolver::computeMonochrome(const 
 
 	int n_layer = atmosphere_model.altitude.size();
 
-	io::global().info("RadiativeTransferSolver::computeMonochrome") << "Setting atmosphere condition for " << spectral << (dimension == physics::SpectralCoordinateDimension::Wavenumber ? "m-1" : "m") << ".";
+	io::global().info("RadiativeTransferSolver::computeMonochrome") << "Setting atmosphere condition for " << spectral << (dimension == physics::SpectralCoordinateDimension::Wavenumber ? " m-1" : " m") << ".";
 	
 	auto atmosphere_layer_opt = setAtmosphericLayerCondition_(atmosphere_model, spectral, dimension);
 	std::vector<core::RadiativeLayer> atmosphere_layer_rad;
@@ -120,7 +121,7 @@ inline physics::MonochromeData RadiativeTransferSolver::computeMonochrome(const 
 	result.species_scattering_phase_function.resize(n_layer);
 	result.is_scattering_species = atmosphere_layer_opt[0].is_scattering_species;
 
-	io::global().info("RadiativeTransferSolver::computeMonochrome") << "Setting surface condition for " << spectral << (dimension == physics::SpectralCoordinateDimension::Wavenumber ? "m-1" : "m") << ".";
+	io::global().info("RadiativeTransferSolver::computeMonochrome") << "Setting surface condition for " << spectral << (dimension == physics::SpectralCoordinateDimension::Wavenumber ? " m-1" : " m") << ".";
 
 	if(atmosphere_model.surface_type != physics::SurfaceType::NoSurface)
 	{
@@ -149,15 +150,149 @@ inline physics::MonochromeData RadiativeTransferSolver::computeMonochrome(const 
 		result.species_scattering_phase_function[i] = atmosphere_layer_opt[i].species_scattering_phase_function;
 	}
 
-	io::global().info("RadiativeTransferSolver::computeMonochrome") << "Computing atmosphere for " << spectral << (dimension == physics::SpectralCoordinateDimension::Wavenumber ? "m-1" : "m") << ".";
+	io::global().info("RadiativeTransferSolver::computeMonochrome") << "Computing atmosphere for " << spectral << (dimension == physics::SpectralCoordinateDimension::Wavenumber ? " m-1" : " m") << ".";
 	result_layer_rad = core::computeAtmosphere(atmosphere_layer_rad, geometry_);
-	io::global().info("RadiativeTransferSolver::computeMonochrome") << "Finished computing atmosphere for " << spectral << (dimension == physics::SpectralCoordinateDimension::Wavenumber ? "m-1" : "m") << ".";
+	io::global().info("RadiativeTransferSolver::computeMonochrome") << "Finished computing atmosphere for " << spectral << (dimension == physics::SpectralCoordinateDimension::Wavenumber ? " m-1" : " m") << ".";
 
 	result.reflectance_m_top_cos = result_layer_rad.reflectance_m_top_cos;
 	result.reflectance_m_top_sin = result_layer_rad.reflectance_m_top_sin;
 	result.source_up = result_layer_rad.source_up;
 
 	return result;
+}
+
+inline physics::RadiativeTransferAjointResult RadiativeTransferSolver::computeMonochrome_adjoint(const physics::AtmosphereModel& atmosphere_model, double spectral, physics::SpectralCoordinateDimension dimension, const core::RadiativeLayer& adj_source, double initial_optical_thickness, int n_scattering_angle)
+{
+	initial_optical_thickness_ = initial_optical_thickness;
+	n_scattering_angle_ = n_scattering_angle;
+
+	double wavelength;
+	double wavenumber;
+
+	if(dimension == physics::SpectralCoordinateDimension::Wavenumber)
+	{
+		wavelength = 1.0 / spectral;
+		wavenumber = spectral;
+	}
+	else if(dimension == physics::SpectralCoordinateDimension::Wavelength)
+	{
+		wavelength = spectral;
+		wavenumber = 1.0 / spectral;
+	}
+	else
+	{
+		io::global().fatal("RadiativeTransferCalculator::computeMonochrome_ajoint") << "Frequency calculation is not currently supported.";
+		throw std::runtime_error("[RadiativeTransferCalculator::computeMonochrome_ajoint] Frequency calculation is not currently supported.");
+	}
+
+	int n_layer = atmosphere_model.altitude.size();
+
+	io::global().info("RadiativeTransferSolver::computeMonochrome_ajoint") << "Setting atmosphere condition for " << spectral << (dimension == physics::SpectralCoordinateDimension::Wavenumber ? " m-1" : " m") << ".";
+	
+	auto atmosphere_layer_opt = setAtmosphericLayerCondition_(atmosphere_model, spectral, dimension);
+	std::vector<core::RadiativeLayer> atmosphere_layer_rad;
+
+	if(atmosphere_model.surface_type != physics::SurfaceType::NoSurface)
+	{
+		atmosphere_layer_rad.resize(n_layer + 1);
+	}
+	else
+	{
+		atmosphere_layer_rad.resize(n_layer);
+	}
+
+	core::RadiativeLayer result_layer_rad;
+
+	io::global().info("RadiativeTransferSolver::computeMonochrome_adjoint") << "Setting surface condition for " << spectral << (dimension == physics::SpectralCoordinateDimension::Wavenumber ? " m-1" : " m") << ".";
+
+	if(atmosphere_model.surface_type != physics::SurfaceType::NoSurface)
+	{
+		auto surface_layer_opt = setSurfaceLayerCondition_(atmosphere_model, spectral, dimension);
+		atmosphere_layer_rad[0] = initializeSurfaceLayer_(surface_layer_opt);
+		atmosphere_layer_rad[0].is_surface = true;
+	}
+
+	for(int i = 0; i < n_layer; ++i)
+	{
+		int idx = atmosphere_model.surface_type == physics::SurfaceType::NoSurface ? i : i + 1;
+		computeDeltaApproximation_(atmosphere_layer_opt[i]);
+
+		atmosphere_layer_rad[idx] = initializeAtmosphericLayer_(atmosphere_layer_opt[i]);
+		atmosphere_layer_rad[idx].is_surface = false;
+	}
+
+	// ajoint
+	io::global().info("RadiativeTransferSolver::computeMonochrome_adjoint") << "Computing adjoint calculation for " << spectral << (dimension == physics::SpectralCoordinateDimension::Wavenumber ? " m-1" : " m") << ".";
+	auto adj_layers = core::computeAtmosphere_adjoint(atmosphere_layer_rad, geometry_, adj_source);
+	io::global().info("RadiativeTransferSolver::computeMonochrome_adjoint") << "Finished adjoint calculation for " << spectral << (dimension == physics::SpectralCoordinateDimension::Wavenumber ? " m-1" : " m") << ".";
+
+	physics::RadiativeTransferAjointResult sensitivity;
+	sensitivity.layers.resize(n_layer);
+
+	for(int i = 0; i < n_layer; ++i)
+	{
+		int idx = atmosphere_model.surface_type == physics::SurfaceType::NoSurface ? i : i + 1;
+		
+		io::global().info("RadiativeTransferSolver::computeMonochrome_adjoint") << "Computing initialization sensitivities for layer  " << i << ".";
+		auto core_sens = core::computeInitializationSensitivities(adj_layers[idx], atmosphere_layer_rad[idx], atmosphere_layer_opt[i].single_scattering_albedo,geometry_, n_scattering_angle);
+		io::global().info("RadiativeTransferSolver::computeMonochrome_adjoint") << "Finished computing initialization sensitivities for layer  " << i << ".";
+
+		sensitivity.layers[i].species.resize(atmosphere_model.species.size());
+
+		double delta_z = atmosphere_model.altitude_top[i] - atmosphere_model.altitude_bottom[i];
+		double tau_total = atmosphere_layer_opt[i].optical_thickness;
+		double omega_total = atmosphere_layer_opt[i].single_scattering_albedo;
+		double k_ext_total = tau_total / delta_z;
+		double k_sca_total = k_ext_total * omega_total;
+		double k_abs_total = k_ext_total - k_sca_total;
+
+		if(tau_total <= 0.0) 
+		{
+			for(size_t s = 0; s < atmosphere_model.species.size(); ++s)
+			{
+				sensitivity.layers[i].species[s].number_density = 0.0;
+			}
+
+			continue; 
+		}
+
+		double scale_factor = 1.0 / std::pow(2.0, atmosphere_layer_rad[idx].n_doubling);
+		core_sens.optical_thickness *= scale_factor;
+
+		// io::global().info("RadiativeTransferSolver::computeMonochrome_adjoint") << "core_sens.scattering_phase_function.size() = " << core_sens.scattering_phase_function.size() << ", n_scattering_angle = " << n_scattering_angle;
+
+		for(size_t s = 0; s < atmosphere_model.species.size(); ++s)
+		{
+			// io::global().info("RadiativeTransferSolver::computeMonochrome_adjoint") << "Computing sensitivities for species = " << s;
+
+			const auto& species = atmosphere_model.species[s];
+			
+			double term_tau = core_sens.optical_thickness * atmosphere_layer_opt[i].species_absorption_cross_section[s] * delta_z + core_sens.optical_thickness * atmosphere_layer_opt[i].species_scattering_cross_section[s] * delta_z;
+
+			double term_omega = -atmosphere_layer_opt[i].species_absorption_cross_section[s] * core_sens.single_scattering_albedo * k_sca_total / (k_ext_total * k_ext_total);
+			term_omega += atmosphere_layer_opt[i].species_scattering_cross_section[s] * core_sens.single_scattering_albedo * k_abs_total / (k_ext_total * k_ext_total);
+
+			sensitivity.layers[i].species[s].number_density = term_tau + term_omega;
+
+			if(atmosphere_layer_opt[i].is_scattering_species[s] == true && omega_total > 0.0)
+			{
+				double term_P = 0.0;
+
+				for(int k = 0; k < n_scattering_angle; ++k)
+				{
+					term_P += core_sens.scattering_phase_function[k][1] * atmosphere_layer_opt[i].species_scattering_cross_section[s] / k_sca_total * (atmosphere_layer_opt[i].species_scattering_phase_function[s][k][1] - atmosphere_layer_opt[i].scattering_phase_function[k][1]);
+				}
+
+				sensitivity.layers[i].species[s].number_density += term_P;
+			}
+
+			sensitivity.layers[i].species[s].mixing_ratio = sensitivity.layers[i].species[s].number_density * atmosphere_model.number_density[i];
+		}
+	}
+
+	io::global().info("RadiativeTransferSolver::computeMonochrome_adjoint") << "Finished propagation for " << spectral << (dimension == physics::SpectralCoordinateDimension::Wavenumber ? " m-1" : " m") << ".";
+
+	return sensitivity;
 }
 
 inline void RadiativeTransferSolver::computeDeltaApproximation_(physics::OpticalLayer& layer)

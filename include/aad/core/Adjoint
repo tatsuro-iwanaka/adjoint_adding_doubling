@@ -555,4 +555,101 @@ inline void computeInitializationSensitivities(const RadiativeLayer& adj_layer, 
 	}
 }
 
+inline OpticalSensitivity computeInitializationSensitivities(const RadiativeLayer& adj_layer, const RadiativeLayer& fwd_matrix_layer, double single_scattering_albedo, const Geometry& geo, int n_theta)
+{
+	OpticalSensitivity result;
+	result.optical_thickness = 0.0;
+	result.single_scattering_albedo = 0.0;
+
+	double tau = fwd_matrix_layer.optical_thickness;
+	double omega = single_scattering_albedo;
+
+	// if (tau <= 1e-15 || omega <= 1e-15)
+	// {
+	// 	return result;
+	// }
+
+	double inv_tau = 1.0 / tau;
+	double inv_omega = 1.0 / omega;
+	double base_coeff = omega * tau / 4.0;
+
+	result.optical_thickness += adj_layer.optical_thickness;
+
+	double sum_inner_product = 0.0;
+
+	for (int m = 0; m <= geo.M; ++m)
+	{
+		sum_inner_product += (adj_layer.reflectance_m_top_cos[m].array() * fwd_matrix_layer.reflectance_m_top_cos[m].array()).sum();
+		sum_inner_product += (adj_layer.transmittance_m_top_cos[m].array() * fwd_matrix_layer.transmittance_m_top_cos[m].array()).sum();
+	}
+
+	result.optical_thickness += sum_inner_product * inv_tau;
+	result.single_scattering_albedo += sum_inner_product * inv_omega;
+
+	std::vector<double> theta_grid(n_theta);
+	std::vector<double> grad_P(n_theta, 0.0);
+	for(int i = 0; i < n_theta; ++i)
+	{
+		theta_grid[i] = std::numbers::pi / double(n_theta - 1) * double(i);
+	}
+
+	for (int i = 0; i < geo.Ntheta; ++i) 
+	{
+		for (int j = 0; j < geo.Ntheta; ++j) 
+		{
+			double mu_i = geo.mu(i);
+			double mu_j = geo.mu(j);
+			double geom_factor = base_coeff / (mu_i * mu_j);
+
+			for (int k = 0; k < geo.Nphi; ++k) 
+			{
+				double phi = geo.phi(k);
+				
+				double weight_phi = geo.d_phi;
+				
+				double cos_phi = std::cos(phi);
+
+				double grad_R_val = 0.0;
+				double grad_T_val = 0.0;
+
+				for (int m = 0; m <= geo.M; ++m) 
+				{
+					double cos_m_phi = std::cos(m * phi);
+					// double factor = (m == 0) ? 1.0 : 2.0;
+					double factor = 1.0;
+
+					grad_R_val += factor * adj_layer.reflectance_m_top_cos[m](i, j) * cos_m_phi;
+					grad_T_val += factor * adj_layer.transmittance_m_top_cos[m](i, j) * cos_m_phi;
+				}
+
+				double sin_i = std::sqrt(std::max(0.0, 1.0 - mu_i * mu_i));
+				double sin_j = std::sqrt(std::max(0.0, 1.0 - mu_j * mu_j));
+
+				double cos_theta_refl = -mu_i * mu_j + sin_i * sin_j * cos_phi;
+				double theta_refl = std::acos(std::clamp(cos_theta_refl, -1.0, 1.0));
+
+				double cos_theta_tran =  mu_i * mu_j + sin_i * sin_j * cos_phi;
+				double theta_tran = std::acos(std::clamp(cos_theta_tran, -1.0, 1.0));
+				
+				double common_grad_factor = geom_factor * (geo.d_phi / (2.0 * std::numbers::pi));
+
+				#pragma omp critical
+				{
+					accumulate_gradient_to_grid(theta_refl, grad_R_val * common_grad_factor, theta_grid, grad_P);
+					accumulate_gradient_to_grid(theta_tran, grad_T_val * common_grad_factor, theta_grid, grad_P);
+				}
+			}
+		}
+	}
+
+	result.scattering_phase_function.resize(n_theta);
+	for(int i = 0; i < n_theta; ++i)
+	{
+		result.scattering_phase_function[i] = {theta_grid[i], grad_P[i]};
+	}
+
+	return result;
+}
+
+
 }

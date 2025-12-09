@@ -33,6 +33,7 @@ class RadiativeTransfer
 		core::Geometry geometry_;
 		physics::DeltaApproximation delta_approximation_;
 		physics::RadiativeTransferResult result_;
+		physics::RadiativeTransferAjointResult result_adjoint_;
 
 		std::string config_filename_;
 
@@ -43,9 +44,19 @@ class RadiativeTransfer
 		RadiativeTransfer(const std::string&);
 		void loadConfiguration(void);
 		void run(void);
+		void run_adjoint(const std::vector<aad::core::RadiativeLayer>&);
 		void exportResultNetCDF(void);
+
 		physics::RadiativeTransferResult result(void);
+		physics::RadiativeTransferAjointResult result_adjoint(void);
+
+		core::Geometry geometry(void);
 };
+
+inline core::Geometry RadiativeTransfer::geometry(void)
+{
+	return geometry_;
+}
 
 inline RadiativeTransfer::RadiativeTransfer()
 {
@@ -314,9 +325,113 @@ inline void RadiativeTransfer::run(void)
 	return;
 }
 
+inline void RadiativeTransfer::run_adjoint(const std::vector<aad::core::RadiativeLayer>& adj_source)
+{
+	radiative_transfer_solver_.geometry(geometry_);
+	radiative_transfer_solver_.delta_approximation(delta_approximation_);
+
+	auto scale_layer = [](aad::core::RadiativeLayer& layer, double w)
+	{
+		layer.source_up *= w;
+		layer.source_down *= w;
+
+		for(auto& mat : layer.reflectance_m_top_cos) mat *= w;
+		for(auto& mat : layer.reflectance_m_top_sin) mat *= w;
+		for(auto& mat : layer.reflectance_m_bottom_cos) mat *= w;
+		for(auto& mat : layer.reflectance_m_bottom_sin) mat *= w;
+		for(auto& mat : layer.transmittance_m_top_cos) mat *= w;
+		for(auto& mat : layer.transmittance_m_top_sin) mat *= w;
+		for(auto& mat : layer.transmittance_m_bottom_cos) mat *= w;
+		for(auto& mat : layer.transmittance_m_bottom_sin) mat *= w;
+
+		return;
+	};
+
+	auto accumulate_result = [&](physics::RadiativeTransferAjointResult& dest, const physics::RadiativeTransferAjointResult& src)
+	{
+		if (dest.layers.empty())
+		{
+			dest = src;
+			return;
+		}
+
+		int n_layer = dest.layers.size();
+
+		for(int i = 0; i < n_layer; ++i)
+		{
+			int n_species = dest.layers[i].species.size();
+			for(int s = 0; s < n_species; ++s)
+			{
+				dest.layers[i].species[s].number_density += src.layers[i].species[s].number_density;
+				dest.layers[i].species[s].mixing_ratio += src.layers[i].species[s].mixing_ratio;
+			}
+		}
+	};
+
+	int n_layer = atmosphere_model_.altitude.size();
+	result_adjoint_.layers.resize(n_layer);
+
+	if(spectral_.spectral_coordinate_type == physics::SpectralCoordinateType::Monochrome)
+	{
+		result_adjoint_ = radiative_transfer_solver_.computeMonochrome_adjoint(atmosphere_model_, spectral_.spectral_grid[0], spectral_.spectral_dimension, adj_source[0], configuration_.simulation.tau_initial_layer.value(), simulation_.n_scattering_angle);
+	}
+	else if(spectral_.spectral_coordinate_type == physics::SpectralCoordinateType::Bandpass)
+	{
+		int n_spectral = spectral_.spectral_grid.size();
+		std::vector<aad::physics::RadiativeTransferAjointResult> results_ajd(n_spectral);
+		
+		#pragma omp parallel for num_threads(simulation_.n_parallel)
+		for(int i = 0; i < n_spectral; ++i)
+		{
+			double spectral = spectral_.spectral_grid[i];
+			double weight = spectral_.filter_weight[i];
+
+			aad::core::RadiativeLayer weighted_source = adj_source[0];
+			
+			scale_layer(weighted_source, weight);
+
+			io::global().info("RadiativeTransfer::run_adjoint") << "Computing for " << spectral << (spectral_.spectral_dimension == physics::SpectralCoordinateDimension::Wavenumber ? " m-1" : " m") << ".";
+			results_ajd[i] = radiative_transfer_solver_.computeMonochrome_adjoint(atmosphere_model_, spectral, spectral_.spectral_dimension, weighted_source, configuration_.simulation.tau_initial_layer.value(), simulation_.n_scattering_angle);
+			io::global().info("RadiativeTransfer::run_adjoint") << "Finished computing for " << spectral << (spectral_.spectral_dimension == physics::SpectralCoordinateDimension::Wavenumber ? " m-1" : " m") << ".";
+		}
+
+		result_adjoint_ = results_ajd[0];
+
+		for(int i = 1; i < n_spectral; ++i)
+		{
+			for(int j = 0; j < n_layer; ++j)
+			{
+				int n_species = results_ajd[i].layers[j].species.size();
+
+				for(int s = 0; s < n_species; ++s)
+				{
+					result_adjoint_.layers[j].species[s].number_density += results_ajd[i].layers[j].species[s].number_density;
+					result_adjoint_.layers[j].species[s].mixing_ratio += results_ajd[i].layers[j].species[s].mixing_ratio;
+					result_adjoint_.layers[j].species[s].log_mixing_ratio += results_ajd[i].layers[j].species[s].mixing_ratio * atmosphere_model_.species[s].vertical_mixing_ratio_profile[j];
+				}
+			}
+		}
+
+	}
+	else if(spectral_.spectral_coordinate_type == physics::SpectralCoordinateType::Spectrum)
+	{
+		io::global().fatal("RadiativeTransfer::run_adjoint") << "Spectral adjoint is not yet implemented.";
+		throw std::runtime_error("[RadiativeTransfer::run_adjoint] Spectral adjoint is not yet implemented.");
+	}
+
+	result_adjoint_.altitude = atmosphere_model_.altitude;
+
+	return;
+}
+
 inline physics::RadiativeTransferResult RadiativeTransfer::result(void)
 {
 	return result_;
+}
+
+inline physics::RadiativeTransferAjointResult RadiativeTransfer::result_adjoint(void)
+{
+	return result_adjoint_;
 }
 
 inline void RadiativeTransfer::exportResultNetCDF()

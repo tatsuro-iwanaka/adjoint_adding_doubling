@@ -649,4 +649,29 @@ struct RadiativeTransferResult
 		SpectralCoordinateDimension spectral_dimension;
 };
 
+struct SpeciesSensitivity
+{
+	double number_density;
+	double mixing_ratio;
+	double log_mixing_ratio;
+	double r_g;
+	double sigma_g;
+	// ...
+};
+
+struct LayerSensitivity
+{
+	aad::core::OpticalSensitivity optical;
+	
+	std::vector<SpeciesSensitivity> species;
+};
+
+struct RadiativeTransferAjointResult
+{
+	std::vector<double> altitude; // altitude
+	std::vector<LayerSensitivity> layers;
+
+	// 地面の感度は後で実装．今はとりあえず大気だけ
+};
+
 }

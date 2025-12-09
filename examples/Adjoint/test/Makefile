@@ -1,6 +1,6 @@
 CXX       = g++-14 -std=c++2a -O3
 
-CXXFLAGS = `pkg-config --cflags eigen3` -I ../../include
+CXXFLAGS = `pkg-config --cflags eigen3` -I ../../../include
 
 LDFLAGS   = 
 

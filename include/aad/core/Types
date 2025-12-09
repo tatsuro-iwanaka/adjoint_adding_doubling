@@ -379,6 +379,24 @@ class RadiativeLayer
 
 		double optical_thickness; //dimensionless
 
+		void resize(int n_theta, int n_mode)
+		{
+			reflectance_m_top_cos.resize(n_mode + 1, Eigen::MatrixXd::Zero(n_theta, n_theta));
+			reflectance_m_bottom_cos.resize(n_mode + 1, Eigen::MatrixXd::Zero(n_theta, n_theta));
+			transmittance_m_top_cos.resize(n_mode + 1, Eigen::MatrixXd::Zero(n_theta, n_theta));
+			transmittance_m_bottom_cos.resize(n_mode + 1, Eigen::MatrixXd::Zero(n_theta, n_theta));
+
+			reflectance_m_top_sin.resize(n_mode + 1, Eigen::MatrixXd::Zero(n_theta, n_theta));
+			reflectance_m_bottom_sin.resize(n_mode + 1, Eigen::MatrixXd::Zero(n_theta, n_theta));
+			transmittance_m_top_sin.resize(n_mode + 1, Eigen::MatrixXd::Zero(n_theta, n_theta));
+			transmittance_m_bottom_sin.resize(n_mode + 1, Eigen::MatrixXd::Zero(n_theta, n_theta));
+
+			source_up = Eigen::VectorXd(n_theta);
+			source_down = Eigen::VectorXd(n_theta);
+
+			return;
+		}
+
 		void clear(void)
 		{
 			reflectance_m_top_cos.clear();
@@ -921,5 +939,13 @@ class JacobianResult
 		}
 };
 */
+
+struct OpticalSensitivity
+{
+	double optical_thickness;
+	double single_scattering_albedo;
+	std::vector<std::vector<double>> scattering_phase_function;
+};
+
 
 }
