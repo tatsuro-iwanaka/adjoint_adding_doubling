@@ -49,7 +49,7 @@ The interaction between the two layers involves infinite reflections. This is so
 
 $$
 \begin{aligned}
-Q_1 &= c R_{\text{bot}} W R_{\text{top}} \\
+Q_1 &= c R_{\mathrm{bot}} W R_{\mathrm{top}} \\
 Q_2 &= c Q_1 W \\
 S &= Q_1 + Q_2 Q_1 + Q_2 Q_2 Q_1 + \dots = (I - Q_2)^{-1} Q_1
 \end{aligned}
@@ -64,24 +64,24 @@ The downward ($D$) and upward ($U$) diffuse intensities at the interface between
 
 $$
 \begin{aligned}
-D &= c S W T_{\text{top}} + T_{\text{top}} + S E \\
-U &= c R_{\text{top}} W D + R_{\text{top}} E
+D &= c S W T_{\mathrm{top}} + T_{\mathrm{top}} + S E \\
+U &= c R_{\mathrm{top}} W D + R_{\mathrm{top}} E
 \end{aligned}
 $$
 
-Here, terms like $SE$ and $R_{\text{top}}E$ represent the contribution from the direct beam scattered into the diffuse field at the interface.
+Here, terms like $SE$ and $R_{\mathrm{top}}E$ represent the contribution from the direct beam scattered into the diffuse field at the interface.
 
 ### 4. Resulting Layer Properties
-Finally, the reflection ($R^{\text{res}}$) and transmission ($T^{\text{res}}$) matrices for the combined layer are:
+Finally, the reflection ($R^{\mathrm{res}}$) and transmission ($T^{\mathrm{res}}$) matrices for the combined layer are:
 
 $$
 \begin{aligned}
-R_{\text{top}}^{\text{res}} &= c T_{\text{bot}} W U + R_{\text{top}} + E U \\
-T_{\text{top}}^{\text{res}} &= c T_{\text{top}} W D + T_{\text{top}} E + E D
+R_{\mathrm{top}}^{\mathrm{res}} &= c T_{\mathrm{bot}} W U + R_{\mathrm{top}} + E U \\
+T_{\mathrm{top}}^{\mathrm{res}} &= c T_{\mathrm{top}} W D + T_{\mathrm{top}} E + E D
 \end{aligned}
 $$
 
-For the doubling method (where top and bottom layers are identical), $R_{\text{bot}}^{\text{res}} = R_{\text{top}}^{\text{res}}$ and $T_{\text{bot}}^{\text{res}} = T_{\text{top}}^{\text{res}}$.
+For the doubling method (where top and bottom layers are identical), $R_{\mathrm{bot}}^{\mathrm{res}} = R_{\mathrm{top}}^{\mathrm{res}}$ and $T_{\mathrm{bot}}^{\mathrm{res}} = T_{\mathrm{top}}^{\mathrm{res}}$.
 
 ## Matrix Formulation of Adding Equations
 
@@ -103,14 +103,14 @@ The interaction between the two layers involves infinite reflections at the inte
 
 $$
 \begin{aligned}
-Q_1 &= c R^\mathrm{top}_{\text{bot}} W R^\mathrm{bot}_{\text{top}} \\
+Q_1 &= c R^\mathrm{top}_{\mathrm{bot}} W R^\mathrm{bot}_{\mathrm{top}} \\
 Q_2 &= c Q_1 W \\
 S &= Q_1 + Q_2 Q_1 + Q_2 Q_2 Q_1 + \dots = (I - Q_2)^{-1} Q_1
 \end{aligned}
 $$
 
-* $R^\mathrm{top}_{\text{bot}}$: Reflection of the **upper layer** for light incident from **below**.
-* $R^\mathrm{bot}_{\text{top}}$: Reflection of the **lower layer** for light incident from **above**.
+* $R^\mathrm{top}_{\mathrm{bot}}$: Reflection of the **upper layer** for light incident from **below**.
+* $R^\mathrm{bot}_{\mathrm{top}}$: Reflection of the **lower layer** for light incident from **above**.
 * $S$: The source term representing the summation of multiple scattering between layers.
 
 ### 3. Internal Radiation Fields
@@ -118,20 +118,20 @@ The downward ($D$) and upward ($U$) diffuse intensities at the interface between
 
 $$
 \begin{aligned}
-D &= c S W T^\mathrm{top}_{\text{top}} + T^\mathrm{top}_{\text{top}} + S E^\mathrm{top} \\
-U &= c R^\mathrm{bot}_{\text{top}} W D + R^\mathrm{bot}_{\text{top}} E^\mathrm{top}
+D &= c S W T^\mathrm{top}_{\mathrm{top}} + T^\mathrm{top}_{\mathrm{top}} + S E^\mathrm{top} \\
+U &= c R^\mathrm{bot}_{\mathrm{top}} W D + R^\mathrm{bot}_{\mathrm{top}} E^\mathrm{top}
 \end{aligned}
 $$
 
 ### 4. Resulting Layer Properties
-Finally, the reflection ($R^{\text{res}}_\mathrm{top}$) and transmission ($T^{\text{res}}_\mathrm{top}$) matrices for the combined layer (incident from space) are:
+Finally, the reflection ($R^{\mathrm{res}}_\mathrm{top}$) and transmission ($T^{\mathrm{res}}_\mathrm{top}$) matrices for the combined layer (incident from space) are:
 
 $$
 \begin{aligned}
-R_{\text{top}}^{\text{res}} &= c T^\mathrm{top}_{\text{bot}} W U + R^\mathrm{top}_{\text{top}} + E^\mathrm{top} U \\
-T_{\text{top}}^{\text{res}} &= c T^\mathrm{bot}_{\text{top}} W D + T^\mathrm{bot}_{\text{top}} E^\mathrm{top} + E^\mathrm{bot} D
+R_{\mathrm{top}}^{\mathrm{res}} &= c T^\mathrm{top}_{\mathrm{bot}} W U + R^\mathrm{top}_{\mathrm{top}} + E^\mathrm{top} U \\
+T_{\mathrm{top}}^{\mathrm{res}} &= c T^\mathrm{bot}_{\mathrm{top}} W D + T^\mathrm{bot}_{\mathrm{top}} E^\mathrm{top} + E^\mathrm{bot} D
 \end{aligned}
 $$
 
 > **Note:**
-> As seen in the equations above, the reflection and transmission matrices for light incident from below the lower layer ($R^\mathrm{bot}_{\text{bot}}$ and $T^\mathrm{bot}_{\text{bot}}$) are not required to compute $R_{\text{top}}^{\text{res}}$ and $T_{\text{top}}^{\text{res}}$. Therefore, for simulations considering only satellite observations, calculating the response for light incident from the bottom of the combined layer is unnecessary.
+> As seen in the equations above, the reflection and transmission matrices for light incident from below the lower layer ($R^\mathrm{bot}_{\mathrm{bot}}$ and $T^\mathrm{bot}_{\mathrm{bot}}$) are not required to compute $R_{\mathrm{top}}^{\mathrm{res}}$ and $T_{\mathrm{top}}^{\mathrm{res}}$. Therefore, for simulations considering only satellite observations, calculating the response for light incident from the bottom of the combined layer is unnecessary.
