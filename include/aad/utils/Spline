@@ -368,4 +368,35 @@ inline void Spline::TDMA(std::vector<std::vector<double>>& A, std::vector<double
 	return;
 }
 
+
+inline double interpolate2DSpline(double x, double y, const std::vector<double>& x_grid, const std::vector<double>& y_grid, const std::vector<std::vector<double>>& f, std::vector<Boundary> boundary_x = {Boundary::Natural, Boundary::Natural}, std::vector<Boundary> boundary_y = {Boundary::Natural, Boundary::Natural})
+{
+	std::vector<double> fx(y_grid.size());
+
+	for(int i = 0; i < y_grid.size(); ++i)
+	{
+		std::vector<double> fy(x_grid.size());
+
+		for(int j = 0; j < x_grid.size(); ++j)
+		{
+			fy[j] = f[j][i];
+		}
+
+		Spline spline;
+		spline.f = fy;
+		spline.x = x_grid;
+		spline.boundary = boundary_x;
+		spline.makeSpline();
+		fx[i] = spline.interpolation(x);
+	}
+
+	Spline spline;
+	spline.f = fx;
+	spline.x = y_grid;
+	spline.boundary = boundary_y;
+	spline.makeSpline();
+	
+	return spline.interpolation(y);
+}
+
 }
