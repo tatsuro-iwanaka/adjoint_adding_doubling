@@ -144,9 +144,9 @@ int main(void)
 
 		for(int i = 0; i < b.size(); ++i)
 		{
-			output_12 << "===================================================================================" << std::endl;
-			output_12 << "VH. Table 12. b (total optical thickness) = " << b[i] << ". Intensities out at Top." << std::endl; 
-			output_12 << "===================================================================================" << std::endl;
+			output_12 << "===========================================================================================================" << std::endl;
+			output_12 << "VH. Table 12. b (total optical thickness) = " << b[i] << ". Intensities out at Top. Interpolated by spline." << std::endl; 
+			output_12 << "===========================================================================================================" << std::endl;
 			output_12 << "a, mu=0.1, mu=0.3, mu=0.5, mu=0.7, mu=0.9, mu=1.0" << std::endl;
 
 			std::vector<std::vector<std::vector<double>>> flux(a.size(), std::vector<std::vector<double>>(mu.size(), std::vector<double>(mu0.size(), 0.0)));
@@ -231,9 +231,9 @@ int main(void)
 		{
 			for(int m = 0; m < g.size(); ++m)
 			{
-				output_35 << "=================================================================" << std::endl;
-				output_35 << "VH. Table 35. g = " << g[m] << ", b = " << b[i] << ". Reflection." << std::endl; 
-				output_35 << "=================================================================" << std::endl;
+				output_35 << "=========================================================================================" << std::endl;
+				output_35 << "VH. Table 35. g = " << g[m] << ", b = " << b[i] << ". Reflection. Interpolated by spline." << std::endl; 
+				output_35 << "=========================================================================================" << std::endl;
 				output_35 << "a, mu=0.1, mu=0.3, mu=0.5, mu=0.7, mu=0.9, mu=1.0" << std::endl;
 
 				std::vector<aad::core::RadiativeLayer> layers(n_layer);
