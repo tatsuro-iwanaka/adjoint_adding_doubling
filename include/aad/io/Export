@@ -7,6 +7,8 @@
 #include <iomanip>
 #include <cmath>
 
+#include "omp.h"
+
 #include <Eigen/Dense>
 #include <netcdf>
 
@@ -18,7 +20,7 @@
 namespace aad::io
 {
 
-inline void exportResultNetCDF(const physics::RadiativeTransferResult& result, const physics::SimulationInformation& sim_info, const physics::AtmosphereModel& atmosphere, const core::Geometry& geometry, const physics::SpectralInformation& spectral_info)
+inline void exportResultNetCDF(const physics::RadiativeTransferResult& result, const physics::SimulationInformation& sim_info, const physics::AtmosphereModel& atmosphere, const core::Geometry& geometry, const physics::SpectralInformation& spectral_info, int n_parallel = 1)
 {
 	std::string filename = sim_info.directory_name + sim_info.result_name;
 
@@ -107,6 +109,7 @@ inline void exportResultNetCDF(const physics::RadiativeTransferResult& result, c
 	
 	std::vector<double> reflectance_flat(Nspectral * Ntheta * Ntheta * Nphi);
 
+	#pragma omp parallel for num_threads(n_parallel)
 	for(int l = 0; l < Nspectral; l ++)
 	{
 		for(int e = 0; e < Ntheta; e ++)
@@ -159,6 +162,7 @@ inline void exportResultNetCDF(const physics::RadiativeTransferResult& result, c
 	std::vector<double> reflectance_am(Nspectral * (Nmode + 1) * Ntheta * Ntheta);
 	std::vector<double> reflectance_bm(Nspectral * (Nmode + 1) * Ntheta * Ntheta);
 
+	#pragma omp parallel for num_threads(n_parallel)
 	for(int l = 0; l < Nspectral; l ++)
 	{
 		for(int m = 0; m < Nmode + 1; m ++)
@@ -196,17 +200,17 @@ inline void exportResultNetCDF(const physics::RadiativeTransferResult& result, c
 	
 	for(int l = 0; l < Nlayer; l ++)
 	{
+		#pragma omp parallel for num_threads(n_parallel)
 		for(int i = 0; i < Nspectral; i ++)
 		{
-			tau[l * Nspectral + i] = result.spectral_data[i].optical_thickness[l];
-			ka[l * Nspectral + i] = result.spectral_data[i].absorption_coefficient[l];
-			ks[l * Nspectral + i] = result.spectral_data[i].scattering_coefficient[l];
-			omega[l * Nspectral + i] = result.spectral_data[i].single_scattering_albedo[l];
-			g[l * Nspectral + i] = result.spectral_data[i].asymmetry_parameter[l];
+			int idx = l * Nspectral + i;
+			tau[idx] = result.spectral_data[i].optical_thickness[l];
+			ka[idx] = result.spectral_data[i].absorption_coefficient[l];
+			ks[idx] = result.spectral_data[i].scattering_coefficient[l];
+			omega[idx] = result.spectral_data[i].single_scattering_albedo[l];
+			g[idx] = result.spectral_data[i].asymmetry_parameter[l];
 		}
 	}
-
-	
 
 	netCDF::NcVar var_z = outputFile.addVar("altitude", netCDF::ncDouble, dim_layer);
 	var_z.putAtt("long_name", "altitude of center of layer");
@@ -284,6 +288,7 @@ inline void exportResultNetCDF(const physics::RadiativeTransferResult& result, c
 
 	for(int i = 0; i < Nlayer; ++i)
 	{
+		#pragma omp parallel for num_threads(n_parallel)
 		for(int j = 0; j < Nspectral; ++j)
 		{
 			double depth_top = 0.0;
@@ -322,6 +327,7 @@ inline void exportResultNetCDF(const physics::RadiativeTransferResult& result, c
 	std::vector<double> pf_flat(Nlayer * Nspectral * Nscattering_angle);
 	for(int i = 0; i < Nlayer; ++i)
 	{
+		#pragma omp parallel for num_threads(n_parallel)
 		for(int j = 0; j < Nspectral; ++j)
 		{
 			for(int k = 0; k < Nscattering_angle; ++k)
@@ -373,6 +379,7 @@ inline void exportResultNetCDF(const physics::RadiativeTransferResult& result, c
 		
 		for(int j = 0; j < Nlayer; ++j)
 		{
+			#pragma omp parallel for num_threads(n_parallel)
 			for(int k = 0; k < Nspectral; ++k)
 			{
 				scs[j * Nspectral + k] = result.spectral_data[k].species_scattering_cross_section[j][i];
@@ -395,6 +402,7 @@ inline void exportResultNetCDF(const physics::RadiativeTransferResult& result, c
 
 			for(int j = 0; j < Nlayer; ++j)
 			{
+				#pragma omp parallel for num_threads(n_parallel)
 				for(int k = 0; k < Nspectral; ++k)
 				{
 					for(int l = 0; l < Nscattering_angle; ++l)

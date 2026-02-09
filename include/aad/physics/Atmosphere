@@ -486,7 +486,7 @@ inline void Configuration::validateConfiguration(void)
 			io::global().fatal("Configuration::validateConfiguration") << "surface_albedo was not specified.";
 			throw std::runtime_error("[Configuration::validateConfiguration] surface_albedo was not specified.");
 		}
-		if(!surface.albedo.has_value())
+		if(!surface.emissivity.has_value())
 		{
 			surface.emissivity = 1.0 - surface.albedo.value();
 			io::global().warn("Configuration::validateConfiguration") << "surface_emissivity was not specified. Automatically set to " << surface.emissivity.value() << "1-albedo.";

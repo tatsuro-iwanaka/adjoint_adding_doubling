@@ -450,7 +450,7 @@ inline physics::RadiativeTransferAjointResult RadiativeTransfer::result_adjoint(
 
 inline void RadiativeTransfer::exportResultNetCDF()
 {
-	io::exportResultNetCDF(result_, simulation_, atmosphere_model_, geometry_, spectral_);
+	io::exportResultNetCDF(result_, simulation_, atmosphere_model_, geometry_, spectral_, simulation_.n_parallel);
 
 	return;
 }

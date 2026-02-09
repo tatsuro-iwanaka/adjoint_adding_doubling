@@ -907,9 +907,11 @@ inline physics::AtmosphereModel ModelBuilder::buildAtmosphereModel(const physics
 	model.enable_atmospheric_emission = configuration.simulation.enable_atmospheric_emission.value();
 
 	// Surface
+	// std::cout << configuration.surface.type.has_value() << std::endl;
 	model.surface_type = configuration.surface.type.value();
 	if(model.surface_type != physics::SurfaceType::NoSurface)
 	{
+		// std::cout << configuration.surface.albedo.has_value() << ", " << configuration.surface.emissivity.has_value() << ", " << configuration.surface.temperature.has_value() << std::endl;
 		model.surface_albedo = configuration.surface.albedo.value();
 		model.surface_emissivity = configuration.surface.emissivity.value();
 		model.surface_temperature = configuration.surface.temperature.value();
