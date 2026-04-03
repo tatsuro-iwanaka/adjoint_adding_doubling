@@ -424,57 +424,59 @@ inline std::vector<physics::Species> ModelBuilder::buildSpecies_(const physics::
 
 				if(s_input.size_distribution.value() == physics::ParticleSizeDistribution::Delta)
 				{
+					// std::cout << "delta" << std::endl;
 					s.particle_size_distribution = {{s_input.delta_r.value() * physics::scaleUnit(s_input.unit_input_radius.value(), "m"), 1.0}};
 					s.weight_particle_size_distribution = {{s_input.delta_r.value() * physics::scaleUnit(s_input.unit_input_radius.value(), "m"), 1.0}};
-
 					s.delta_r = s_input.delta_r.value() * physics::scaleUnit(s_input.unit_input_radius.value(), "m");
 				}
 				else if(s_input.size_distribution.value() == physics::ParticleSizeDistribution::Rectangular)
 				{
+					// std::cout << "rectangle" << std::endl;
 					auto node_weight = physics::generateRectangularSizeDistribution(s_input.count_radius.value(), s_input.rect_r_mean.value() * physics::scaleUnit(s_input.unit_input_radius.value(), "m"), s_input.rect_width.value() * physics::scaleUnit(s_input.unit_input_radius.value(), "m"));
 					s.particle_size_distribution = node_weight[0]; // 本当は不要
 					s.weight_particle_size_distribution = node_weight[1];
-
 					s.rect_r_mean = s_input.rect_r_mean.value() * physics::scaleUnit(s_input.unit_input_radius.value(), "m");
 					s.rect_width = s_input.rect_width.value() * physics::scaleUnit(s_input.unit_input_radius.value(), "m");
 				}
 				else if(s_input.size_distribution.value() == physics::ParticleSizeDistribution::Gamma)
 				{
+					// std::cout << "gamma" << std::endl;
 					auto node_weight = physics::generateGammaSizeDistribution(s_input.count_radius.value(), s_input.gd_a.value() * physics::scaleUnit(s_input.unit_input_radius.value(), "m"), s_input.gd_b.value());
 					s.particle_size_distribution = node_weight[0]; // 本当は不要
 					s.weight_particle_size_distribution = node_weight[1];
-
 					s.gd_a = s_input.gd_a.value() * physics::scaleUnit(s_input.unit_input_radius.value(), "m");
 					s.gd_b = s_input.gd_b.value();
 				}
 				else if(s_input.size_distribution.value() == physics::ParticleSizeDistribution::ModifiedGamma)
 				{
+					// std::cout << "modified gamma" << std::endl;
 					auto node_weight = physics::generateModifiedGammaSizeDistribution(s_input.count_radius.value(), s_input.mgd_r_c.value() * physics::scaleUnit(s_input.unit_input_radius.value(), "m"), s_input.mgd_alpha.value(), s_input.mgd_gamma.value());
 					s.particle_size_distribution = node_weight[0]; // 本当は不要
 					s.weight_particle_size_distribution = node_weight[1];
-
-					s.mgd_r_c = s_input.mgd_r_c.value() * physics::scaleUnit(s_input.unit_input_radius.value(), "m");
-					s.mgd_alpha = s_input.mgd_alpha.value();
-					s.mgd_gamma = s_input.mgd_gamma.value();
+					// これらを入れると計算が壊れる
+					// s.mgd_r_c = s_input.mgd_r_c.value() * physics::scaleUnit(s_input.unit_input_radius.value(), "m");
+					// s.mgd_alpha = s_input.mgd_alpha.value();
+					// s.mgd_gamma = s_input.mgd_gamma.value();
 				}
 				else if(s_input.size_distribution.value() == physics::ParticleSizeDistribution::LogNormal)
 				{
+					// std::cout << "log normal" << std::endl;
 					auto node_weight = physics::generateLogNormalSizeDistribution(s_input.count_radius.value(), s_input.lnd_r_g.value() * physics::scaleUnit(s_input.unit_input_radius.value(), "m"), s_input.lnd_sigma_g.value());
 					s.particle_size_distribution = node_weight[0]; // 本当は不要
 					s.weight_particle_size_distribution = node_weight[1];
-
 					s.lnd_r_g = s_input.lnd_r_g.value() * physics::scaleUnit(s_input.unit_input_radius.value(), "m");
 					s.lnd_sigma_g = s_input.lnd_sigma_g.value();
 				}
 				else if(s_input.size_distribution.value() == physics::ParticleSizeDistribution::PowerLaw)
 				{
+					// std::cout << "power law" << std::endl;
 					auto node_weight = physics::generatePowerLawSizeDistribution(s_input.count_radius.value(), s_input.pl_delta.value(), s_input.pl_r1.value() * physics::scaleUnit(s_input.unit_input_radius.value(), "m"), s_input.pl_r2.value() * physics::scaleUnit(s_input.unit_input_radius.value(), "m"));
 					s.particle_size_distribution = node_weight[0]; // 本当は不要
 					s.weight_particle_size_distribution = node_weight[1];
-
-					s.pl_delta = s_input.pl_delta.value();
-					s.pl_r1 = s_input.pl_r1.value() * physics::scaleUnit(s_input.unit_input_radius.value(), "m");
-					s.pl_r2 = s_input.pl_r2.value() * physics::scaleUnit(s_input.unit_input_radius.value(), "m");
+					// これらを入れると計算が壊れる
+					// s.pl_delta = s_input.pl_delta.value();
+					// s.pl_r1 = s_input.pl_r1.value() * physics::scaleUnit(s_input.unit_input_radius.value(), "m");
+					// s.pl_r2 = s_input.pl_r2.value() * physics::scaleUnit(s_input.unit_input_radius.value(), "m");
 				}
 			}
 		}
