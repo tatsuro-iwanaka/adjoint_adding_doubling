@@ -453,10 +453,9 @@ inline std::vector<physics::Species> ModelBuilder::buildSpecies_(const physics::
 					auto node_weight = physics::generateModifiedGammaSizeDistribution(s_input.count_radius.value(), s_input.mgd_r_c.value() * physics::scaleUnit(s_input.unit_input_radius.value(), "m"), s_input.mgd_alpha.value(), s_input.mgd_gamma.value());
 					s.particle_size_distribution = node_weight[0]; // 本当は不要
 					s.weight_particle_size_distribution = node_weight[1];
-					// これらを入れると計算が壊れる
-					// s.mgd_r_c = s_input.mgd_r_c.value() * physics::scaleUnit(s_input.unit_input_radius.value(), "m");
-					// s.mgd_alpha = s_input.mgd_alpha.value();
-					// s.mgd_gamma = s_input.mgd_gamma.value();
+					s.mgd_r_c = s_input.mgd_r_c.value() * physics::scaleUnit(s_input.unit_input_radius.value(), "m");
+					s.mgd_alpha = s_input.mgd_alpha.value();
+					s.mgd_gamma = s_input.mgd_gamma.value();
 				}
 				else if(s_input.size_distribution.value() == physics::ParticleSizeDistribution::LogNormal)
 				{
@@ -473,10 +472,9 @@ inline std::vector<physics::Species> ModelBuilder::buildSpecies_(const physics::
 					auto node_weight = physics::generatePowerLawSizeDistribution(s_input.count_radius.value(), s_input.pl_delta.value(), s_input.pl_r1.value() * physics::scaleUnit(s_input.unit_input_radius.value(), "m"), s_input.pl_r2.value() * physics::scaleUnit(s_input.unit_input_radius.value(), "m"));
 					s.particle_size_distribution = node_weight[0]; // 本当は不要
 					s.weight_particle_size_distribution = node_weight[1];
-					// これらを入れると計算が壊れる
-					// s.pl_delta = s_input.pl_delta.value();
-					// s.pl_r1 = s_input.pl_r1.value() * physics::scaleUnit(s_input.unit_input_radius.value(), "m");
-					// s.pl_r2 = s_input.pl_r2.value() * physics::scaleUnit(s_input.unit_input_radius.value(), "m");
+					s.pl_delta = s_input.pl_delta.value();
+					s.pl_r1 = s_input.pl_r1.value() * physics::scaleUnit(s_input.unit_input_radius.value(), "m");
+					s.pl_r2 = s_input.pl_r2.value() * physics::scaleUnit(s_input.unit_input_radius.value(), "m");
 				}
 			}
 		}
