@@ -51,11 +51,23 @@ class RadiativeTransfer
 		physics::RadiativeTransferAjointResult result_adjoint(void);
 
 		core::Geometry geometry(void);
+		physics::SpectralInformation spectral(void);
+		physics::AtmosphereModel atmosphere_model(void);
 };
 
 inline core::Geometry RadiativeTransfer::geometry(void)
 {
 	return geometry_;
+}
+
+inline physics::SpectralInformation RadiativeTransfer::spectral(void)
+{
+	return spectral_;
+}
+
+inline physics::AtmosphereModel RadiativeTransfer::atmosphere_model(void)
+{
+	return atmosphere_model_;
 }
 
 inline RadiativeTransfer::RadiativeTransfer()
@@ -136,6 +148,7 @@ inline void RadiativeTransfer::run(void)
 		io::global().info("RadiativeTransfer::run") << "Computing " << spectral << (spectral_.spectral_dimension == physics::SpectralCoordinateDimension::Wavelength ? " m" : " m-1");
 
 		result_.spectral_data[i] = radiative_transfer_solver_.computeMonochrome(atmosphere_model_, spectral, spectral_.spectral_dimension, initial_layer, simulation_.n_scattering_angle);
+		// std::cout << spectral << ", " << result_.spectral_data[i].source_up(0) << std::endl;
 	}
 
 	io::global().info("RadiativeTransfer::run") << "Spectral calculation finished.";
@@ -148,48 +161,117 @@ inline void RadiativeTransfer::run(void)
 	{
 		size_t n_kernel = spectral_.convolution_kernel.size();
 		int n_pad = (n_kernel - 1) / 2;
+		int n_layer = atmosphere_model_.altitude.size();
 		
 		size_t n_total = result_.spectral_data.size();
 		size_t n_output = n_total - 2 * n_pad;
 
+		int count = configuration_.spectral_coordinate.n_spectral.value(); 
+
+		// ゼロ除算回避
+		int multiplier = (count > 1) ? static_cast<int>(n_output - 1) / (count - 1) : 0;
+
 		std::vector<physics::MonochromeData> convolved_data;
-		convolved_data.reserve(n_output);
+		convolved_data.reserve(count);
 
 		std::vector<double> new_grid;
-		new_grid.reserve(n_output);
+		new_grid.reserve(count);
 
-		for(size_t i = 0; i < n_output; ++i)
+		for(size_t j = 0; j < static_cast<size_t>(count); ++j)
 		{
+			size_t i = j * multiplier; 
 			size_t center_idx = i + n_pad;
 
 			physics::MonochromeData data = result_.spectral_data[center_idx];
-
+			
+			// --- 初期化 ---
 			data.source_up.setZero();
+			for(auto& mat : data.reflectance_m_top_cos) mat.setZero();
+			for(auto& mat : data.reflectance_m_top_sin) mat.setZero();
+			
+			std::fill(data.absorption_coefficient.begin(), data.absorption_coefficient.end(), 0.0);
+			std::fill(data.scattering_coefficient.begin(), data.scattering_coefficient.end(), 0.0);
+			std::fill(data.asymmetry_parameter.begin(), data.asymmetry_parameter.end(), 0.0);
 
-			for(auto& mat : data.reflectance_m_top_cos)
+			for(int layer = 0; layer < n_layer; ++layer)
 			{
-				mat.setZero();
+				for(auto& p : data.scattering_phase_function[layer]) p[1] = 0.0;
+				std::fill(data.species_absorption_cross_section[layer].begin(), data.species_absorption_cross_section[layer].end(), 0.0);
+				std::fill(data.species_scattering_cross_section[layer].begin(), data.species_scattering_cross_section[layer].end(), 0.0);
+
+				// 気体種位相関数の初期化
+				for(int s = 0; s < data.species_scattering_phase_function[layer].size(); ++s)
+				{
+					if(data.is_scattering_species[s])
+					{
+						for(auto& p : data.species_scattering_phase_function[layer][s]) p[1] = 0.0;
+					}
+				}
 			}
 
-			for(auto& mat : data.reflectance_m_top_sin)
-			{
-				mat.setZero();
-			}
-
+			// --- 畳み込みループ ---
 			for(size_t k = 0; k < n_kernel; ++k)
 			{
 				size_t src_idx = i + k;
-				
 				double w = spectral_.convolution_kernel[k];
 				const auto& src_data = result_.spectral_data[src_idx];
 
 				data.source_up += src_data.source_up * w;
-
 				for(int m = 0; m <= result_.Nmode; ++m)
 				{
 					data.reflectance_m_top_cos[m] += src_data.reflectance_m_top_cos[m] * w;
 					data.reflectance_m_top_sin[m] += src_data.reflectance_m_top_sin[m] * w;
 				}
+
+				for(int layer = 0; layer < n_layer; ++layer)
+				{
+					data.absorption_coefficient[layer] += src_data.absorption_coefficient[layer] * w;
+					data.scattering_coefficient[layer] += src_data.scattering_coefficient[layer] * w;
+					data.asymmetry_parameter[layer] += src_data.asymmetry_parameter[layer] * src_data.scattering_coefficient[layer] * w;
+
+					for(size_t p = 0; p < data.scattering_phase_function[layer].size(); ++p)
+					{
+						data.scattering_phase_function[layer][p][1] += src_data.scattering_phase_function[layer][p][1] * src_data.scattering_coefficient[layer] * w;
+					}
+
+					for(size_t s = 0; s < data.species_absorption_cross_section[layer].size(); ++s)
+					{
+						data.species_absorption_cross_section[layer][s] += src_data.species_absorption_cross_section[layer][s] * w;
+						double s_scat = src_data.species_scattering_cross_section[layer][s];
+						data.species_scattering_cross_section[layer][s] += s_scat * w;
+
+						if(data.is_scattering_species[s])
+						{
+							for(size_t l = 0; l < data.species_scattering_phase_function[layer][s].size(); ++l)
+							{
+								data.species_scattering_phase_function[layer][s][l][1] += src_data.species_scattering_phase_function[layer][s][l][1] * s_scat * w;
+							}
+						}
+					}
+				}
+			}
+
+			// --- 後処理・正規化 ---
+			for(int layer = 0; layer < n_layer; ++layer)
+			{
+				if (data.scattering_coefficient[layer] > 0.0)
+				{
+					data.asymmetry_parameter[layer] /= data.scattering_coefficient[layer];
+					physics::normalizeScatteringPhaseFunction(data.scattering_phase_function[layer]);
+				}
+
+				// 追加：気体種ごとの正規化
+				for(size_t s = 0; s < data.is_scattering_species.size(); ++s)
+				{
+					if(data.is_scattering_species[s] && data.species_scattering_cross_section[layer][s] > 0.0)
+					{
+						physics::normalizeScatteringPhaseFunction(data.species_scattering_phase_function[layer][s]);
+					}
+				}
+
+				double total_ext = data.absorption_coefficient[layer] + data.scattering_coefficient[layer];
+				data.single_scattering_albedo[layer] = (total_ext > 0) ? (data.scattering_coefficient[layer] / total_ext) : 0.0;
+				data.optical_thickness[layer] = total_ext * (atmosphere_model_.altitude_top[layer] - atmosphere_model_.altitude_bottom[layer]);
 			}
 
 			convolved_data.push_back(std::move(data));
@@ -350,61 +432,175 @@ inline void RadiativeTransfer::run_adjoint(const std::vector<aad::core::Radiativ
 
 		return;
 	};
-
-	auto accumulate_result = [&](physics::RadiativeTransferAjointResult& dest, const physics::RadiativeTransferAjointResult& src)
-	{
-		if (dest.layers.empty())
-		{
-			dest = src;
-			return;
-		}
-
-		int n_layer = dest.layers.size();
-
-		for(int i = 0; i < n_layer; ++i)
-		{
-			int n_species = dest.layers[i].species.size();
-			for(int s = 0; s < n_species; ++s)
-			{
-				dest.layers[i].species[s].number_density += src.layers[i].species[s].number_density;
-				dest.layers[i].species[s].mixing_ratio += src.layers[i].species[s].mixing_ratio;
-			}
-		}
-	};
-
+	
 	int n_layer = atmosphere_model_.altitude.size();
 	result_adjoint_.layers.resize(n_layer);
 
 	if(spectral_.spectral_coordinate_type == physics::SpectralCoordinateType::Monochrome)
 	{
-		result_adjoint_ = radiative_transfer_solver_.computeMonochrome_adjoint(atmosphere_model_, spectral_.spectral_grid[0], spectral_.spectral_dimension, adj_source[0], configuration_.simulation.tau_initial_layer.value(), simulation_.n_scattering_angle);
+		result_.spectral_data.resize(1);
+		
+		auto result_fwd_adjoint = radiative_transfer_solver_.computeMonochrome_adjoint(atmosphere_model_, spectral_.spectral_grid[0], spectral_.spectral_dimension, adj_source[0], configuration_.simulation.tau_initial_layer.value(), simulation_.n_scattering_angle);
+		result_adjoint_ = result_fwd_adjoint.second;
+		result_.spectral_data[0] = result_fwd_adjoint.first;
+
+		for(int j = 0; j < n_layer; ++j)
+		{
+			for(int s = 0; s < result_adjoint_.layers[j].species.size(); ++s)
+			{
+				result_adjoint_.layers[j].species[s].log_mixing_ratio = result_adjoint_.layers[j].species[s].mixing_ratio * atmosphere_model_.species[s].vertical_mixing_ratio_profile[j];
+			}
+		}
 	}
 	else if(spectral_.spectral_coordinate_type == physics::SpectralCoordinateType::Bandpass)
 	{
 		int n_spectral = spectral_.spectral_grid.size();
+		result_.spectral_data.resize(n_spectral);
 		std::vector<aad::physics::RadiativeTransferAjointResult> results_ajd(n_spectral);
+
+		double denom = 0.0;
+		for(double w : spectral_.filter_weight) denom += w;
 		
 		#pragma omp parallel for num_threads(simulation_.n_parallel)
 		for(int i = 0; i < n_spectral; ++i)
 		{
 			double spectral = spectral_.spectral_grid[i];
-			double weight = spectral_.filter_weight[i];
+			double weight = spectral_.filter_weight[i] / denom;
 
 			aad::core::RadiativeLayer weighted_source = adj_source[0];
 			
 			scale_layer(weighted_source, weight);
 
 			io::global().info("RadiativeTransfer::run_adjoint") << "Computing for " << spectral << (spectral_.spectral_dimension == physics::SpectralCoordinateDimension::Wavenumber ? " m-1" : " m") << ".";
-			results_ajd[i] = radiative_transfer_solver_.computeMonochrome_adjoint(atmosphere_model_, spectral, spectral_.spectral_dimension, weighted_source, configuration_.simulation.tau_initial_layer.value(), simulation_.n_scattering_angle);
+			auto result_fwd_adj = radiative_transfer_solver_.computeMonochrome_adjoint(atmosphere_model_, spectral, spectral_.spectral_dimension, weighted_source, configuration_.simulation.tau_initial_layer.value(), simulation_.n_scattering_angle);
+			result_.spectral_data[i] = result_fwd_adj.first;
+			results_ajd[i] = result_fwd_adj.second;
 			io::global().info("RadiativeTransfer::run_adjoint") << "Finished computing for " << spectral << (spectral_.spectral_dimension == physics::SpectralCoordinateDimension::Wavenumber ? " m-1" : " m") << ".";
 		}
 
-		result_adjoint_ = results_ajd[0];
+		double spectral = 0.0;
+
+		physics::MonochromeData data;
+		data.source_up = Eigen::VectorXd::Zero(geometry_.Ntheta);
+		data.absorption_coefficient.resize(n_layer, 0.0);
+		data.scattering_coefficient.resize(n_layer, 0.0);
+		data.single_scattering_albedo.resize(n_layer, 0.0);
+		data.optical_thickness.resize(n_layer, 0.0);
+		data.asymmetry_parameter.resize(n_layer, 0.0);
+		data.reflectance_m_top_cos.resize(geometry_.M + 1, Eigen::MatrixXd::Zero(geometry_.Ntheta, geometry_.Ntheta));
+		data.reflectance_m_top_sin.resize(geometry_.M + 1, Eigen::MatrixXd::Zero(geometry_.Ntheta, geometry_.Ntheta));
+
+		// newly added
+		data.scattering_phase_function = result_.spectral_data[0].scattering_phase_function;
+		data.is_scattering_species = result_.spectral_data[0].is_scattering_species;
+		data.species_scattering_phase_function = result_.spectral_data[0].species_scattering_phase_function;
+		for(int i = 0; i < data.species_scattering_phase_function.size(); ++i) // altitude
+		{
+			for(int j = 0; j < data.species_scattering_phase_function[i].size(); ++j) // speceis
+			{
+				for(int k = 0; k < data.species_scattering_phase_function[i][j].size(); ++k) // scattering angle
+				{
+					data.species_scattering_phase_function[i][j][k][1] = 0.0;
+				}
+			}
+
+			for(int j = 0; j < data.scattering_phase_function[i].size(); ++j) // scattering angle
+			{
+				data.scattering_phase_function[i][j][1] = 0.0;
+			}
+		}
+		data.species_absorption_cross_section.resize(n_layer, std::vector<double>(data.is_scattering_species.size(), 0.0));
+		data.species_scattering_cross_section.resize(n_layer, std::vector<double>(data.is_scattering_species.size(), 0.0));
+
+		for(int i = 0; i < n_spectral; ++i)
+		{
+			spectral += spectral_.spectral_grid[i] * spectral_.filter_weight[i];
+
+			data.source_up += result_.spectral_data[i].source_up * spectral_.filter_weight[i];
+			
+			for(int j = 0; j < n_layer; ++j)
+			{
+				data.absorption_coefficient[j] += result_.spectral_data[i].absorption_coefficient[j] * spectral_.filter_weight[i];
+				data.scattering_coefficient[j] += result_.spectral_data[i].scattering_coefficient[j] * spectral_.filter_weight[i];
+
+				for(int k = 0; k < data.is_scattering_species.size(); ++k)
+				{
+					data.species_absorption_cross_section[j][k] += result_.spectral_data[i].species_absorption_cross_section[j][k] * spectral_.filter_weight[i];
+					data.species_scattering_cross_section[j][k] += result_.spectral_data[i].species_scattering_cross_section[j][k] * spectral_.filter_weight[i];
+
+					if(data.is_scattering_species[k] == true)
+					{
+						for(int l = 0; l < data.species_scattering_phase_function[j][k].size(); ++l)
+						{
+							data.species_scattering_phase_function[j][k][l][1] += result_.spectral_data[i].species_scattering_phase_function[j][k][l][1] * result_.spectral_data[i].species_scattering_cross_section[j][k] * spectral_.filter_weight[i];
+						}
+					}
+				}
+
+				for(int k = 0; k < data.scattering_phase_function[j].size(); ++k)
+				{
+					data.scattering_phase_function[j][k][1] += result_.spectral_data[i].scattering_phase_function[j][k][1] * result_.spectral_data[i].scattering_coefficient[j] * spectral_.filter_weight[i];
+				}
+
+				data.asymmetry_parameter[j] += result_.spectral_data[i].asymmetry_parameter[j] * result_.spectral_data[i].scattering_coefficient[j] * spectral_.filter_weight[i];
+			}
+
+			for(int j = 0; j <= geometry_.M; ++j)
+			{
+				data.reflectance_m_top_cos[j] += result_.spectral_data[i].reflectance_m_top_cos[j] * spectral_.filter_weight[i];
+				data.reflectance_m_top_sin[j] += result_.spectral_data[i].reflectance_m_top_sin[j] * spectral_.filter_weight[i];
+			}
+		}
+
+		for(int i = 0; i < n_layer; ++i)
+		{
+			data.asymmetry_parameter[i] /= data.scattering_coefficient[i];
+
+			data.absorption_coefficient[i] /= denom;
+			data.scattering_coefficient[i] /= denom;
+
+			for(int j = 0; j < data.is_scattering_species.size(); ++j)
+			{
+				data.species_absorption_cross_section[i][j] /= denom;
+				data.species_scattering_cross_section[i][j] /= denom;
+				
+				if(data.is_scattering_species[j] == true)
+				{
+					physics::normalizeScatteringPhaseFunction(data.species_scattering_phase_function[i][j]);
+				}
+			}
+
+			physics::normalizeScatteringPhaseFunction(data.scattering_phase_function[i]);
+
+			data.single_scattering_albedo[i] = data.scattering_coefficient[i] / (data.scattering_coefficient[i] + data.absorption_coefficient[i]);
+			data.optical_thickness[i] = (data.scattering_coefficient[i] + data.absorption_coefficient[i]) * (atmosphere_model_.altitude_top[i] - atmosphere_model_.altitude_bottom[i]);
+		}
+
+		data.source_up /= denom;
+		spectral /= denom;
+
+		for(int i = 0; i <= geometry_.M; ++i)
+		{
+			data.reflectance_m_top_cos[i] /= denom;
+			data.reflectance_m_top_sin[i] /= denom;
+		}
+
+		result_.spectral_data = {data};
+		result_.spectral_grid = {spectral};
+		result_.spectral_dimension = spectral_.spectral_dimension;
+		spectral_.spectral_grid = {spectral};
+
+		// result_adjoint_ = results_ajd[0];
 
 		// std::cout << results_ajd[0].layers[0].optical.scattering_phase_function.size() << std::endl;
+		result_adjoint_.zero();
 
-		for(int i = 1; i < n_spectral; ++i)
+		for(int i = 0; i < n_spectral; ++i)
 		{
+			result_adjoint_.surface_temperature += results_ajd[i].surface_temperature;
+			result_adjoint_.surface_albedo += results_ajd[i].surface_albedo;
+			result_adjoint_.surface_emissivity += results_ajd[i].surface_emissivity;
+			
 			for(int j = 0; j < n_layer; ++j)
 			{
 				int n_species = results_ajd[i].layers[j].species.size();
@@ -425,12 +621,195 @@ inline void RadiativeTransfer::run_adjoint(const std::vector<aad::core::Radiativ
 				}
 			}
 		}
-
 	}
 	else if(spectral_.spectral_coordinate_type == physics::SpectralCoordinateType::Spectrum)
 	{
-		io::global().fatal("RadiativeTransfer::run_adjoint") << "Spectral adjoint is not yet implemented.";
-		throw std::runtime_error("[RadiativeTransfer::run_adjoint] Spectral adjoint is not yet implemented.");
+		size_t n_high_res = spectral_.spectral_grid.size();
+		std::vector<aad::core::RadiativeLayer> high_res_adj_sources(n_high_res);
+		for (auto& adj : high_res_adj_sources)
+		{
+			adj.resize(geometry_.Ntheta, result_.Nmode);
+		}
+
+		int count = configuration_.spectral_coordinate.n_spectral.value();
+		int n_pad = (static_cast<int>(spectral_.convolution_kernel.size()) - 1) / 2;
+		size_t n_output_conv = n_high_res - 2 * n_pad;
+		int multiplier = (count > 1) ? static_cast<int>(n_output_conv - 1) / (count - 1) : 0;
+
+		// 感度の逆分配 (Adjoint Transpose Convolution)
+		for(size_t j = 0; j < static_cast<size_t>(count); ++j)
+		{
+			size_t i = j * multiplier; 
+			for(size_t k = 0; k < spectral_.convolution_kernel.size(); ++k)
+			{
+				size_t src_idx = i + k;
+
+				double w = spectral_.convolution_kernel[k];
+				high_res_adj_sources[src_idx].source_up += adj_source[j].source_up * w;
+
+				for(int m = 0; m <= result_.Nmode; ++m)
+				{
+					high_res_adj_sources[src_idx].reflectance_m_top_cos[m] += adj_source[j].reflectance_m_top_cos[m] * w;
+					high_res_adj_sources[src_idx].reflectance_m_top_sin[m] += adj_source[j].reflectance_m_top_sin[m] * w;
+				}
+			}
+		}
+
+		std::vector<physics::MonochromeData> results_fwd_per_lambda(n_high_res);
+		std::vector<aad::physics::RadiativeTransferAjointResult> results_per_lambda(n_high_res);
+
+		#pragma omp parallel for num_threads(simulation_.n_parallel)
+		for(int i = 0; i < static_cast<int>(n_high_res); ++i)
+		{
+			double wl = spectral_.spectral_grid[i];
+			auto res_pair = radiative_transfer_solver_.computeMonochrome_adjoint(atmosphere_model_, wl, spectral_.spectral_dimension, high_res_adj_sources[i], configuration_.simulation.tau_initial_layer.value(), simulation_.n_scattering_angle);
+			
+			results_fwd_per_lambda[i] = res_pair.first;
+			results_per_lambda[i] = res_pair.second;
+		}
+
+		// Adjoint 感度累積
+		result_adjoint_ = results_per_lambda[0];
+		result_adjoint_.zero();
+
+		for(int i = 0; i < static_cast<int>(n_high_res); ++i)
+		{
+			if (high_res_adj_sources[i].source_up.isZero()) continue;
+
+			result_adjoint_.surface_temperature += results_per_lambda[i].surface_temperature;
+			result_adjoint_.surface_albedo += results_per_lambda[i].surface_albedo;
+			result_adjoint_.surface_emissivity += results_per_lambda[i].surface_emissivity;
+
+			for(int j = 0; j < n_layer; ++j)
+			{
+				result_adjoint_.layers[j].temperature += results_per_lambda[i].layers[j].temperature;
+				result_adjoint_.layers[j].optical.optical_thickness += results_per_lambda[i].layers[j].optical.optical_thickness;
+				result_adjoint_.layers[j].optical.single_scattering_albedo += results_per_lambda[i].layers[j].optical.single_scattering_albedo;
+
+				for(size_t k = 0; k < result_adjoint_.layers[j].optical.scattering_phase_function.size(); ++k)
+				{
+					result_adjoint_.layers[j].optical.scattering_phase_function[k][1] += results_per_lambda[i].layers[j].optical.scattering_phase_function[k][1];
+				}
+
+				for(int s = 0; s < results_per_lambda[i].layers[j].species.size(); ++s)
+				{
+					auto& spec = results_per_lambda[i].layers[j].species[s];
+
+					result_adjoint_.layers[j].species[s].number_density += spec.number_density;
+					result_adjoint_.layers[j].species[s].mixing_ratio += spec.mixing_ratio;
+					result_adjoint_.layers[j].species[s].log_mixing_ratio += spec.mixing_ratio * atmosphere_model_.species[s].vertical_mixing_ratio_profile[j];
+				}
+			}
+		}
+
+		// Forward スペクトル畳み込み
+		std::vector<physics::MonochromeData> convolved_data;
+		convolved_data.reserve(count);
+		std::vector<double> new_grid;
+
+		for(size_t j = 0; j < static_cast<size_t>(count); ++j)
+		{
+			size_t i = j * multiplier; 
+			size_t center_idx = i + n_pad;
+			physics::MonochromeData data = results_fwd_per_lambda[center_idx];
+
+			// フィールド初期化
+			data.source_up.setZero();
+
+			for(auto& mat : data.reflectance_m_top_cos) mat.setZero();
+			for(auto& mat : data.reflectance_m_top_sin) mat.setZero();
+
+			std::fill(data.absorption_coefficient.begin(), data.absorption_coefficient.end(), 0.0);
+			std::fill(data.scattering_coefficient.begin(), data.scattering_coefficient.end(), 0.0);
+			std::fill(data.asymmetry_parameter.begin(), data.asymmetry_parameter.end(), 0.0);
+
+			for(int layer = 0; layer < n_layer; ++layer)
+			{
+				for(auto& p : data.scattering_phase_function[layer])
+				{
+					p[1] = 0.0;
+				}
+
+				std::fill(data.species_absorption_cross_section[layer].begin(), data.species_absorption_cross_section[layer].end(), 0.0);
+				std::fill(data.species_scattering_cross_section[layer].begin(), data.species_scattering_cross_section[layer].end(), 0.0);
+
+				for(int s = 0; s < data.species_scattering_phase_function[layer].size(); ++s)
+				{
+					if(data.is_scattering_species[s]) for(auto& p : data.species_scattering_phase_function[layer][s]) p[1] = 0.0;
+				}
+			}
+
+			// 加重加算
+			for(size_t k = 0; k < spectral_.convolution_kernel.size(); ++k)
+			{
+				size_t src_idx = i + k;
+				double w = spectral_.convolution_kernel[k];
+				const auto& src = results_fwd_per_lambda[src_idx];
+				data.source_up += src.source_up * w;
+
+				for(int m = 0; m <= result_.Nmode; ++m)
+				{
+					data.reflectance_m_top_cos[m] += src.reflectance_m_top_cos[m] * w;
+					data.reflectance_m_top_sin[m] += src.reflectance_m_top_sin[m] * w;
+				}
+
+				for(int layer = 0; layer < n_layer; ++layer)
+				{
+					data.absorption_coefficient[layer] += src.absorption_coefficient[layer] * w;
+					data.scattering_coefficient[layer] += src.scattering_coefficient[layer] * w;
+					data.asymmetry_parameter[layer] += src.asymmetry_parameter[layer] * src.scattering_coefficient[layer] * w;
+
+					for(size_t p = 0; p < data.scattering_phase_function[layer].size(); ++p)
+					{
+						data.scattering_phase_function[layer][p][1] += src.scattering_phase_function[layer][p][1] * src.scattering_coefficient[layer] * w;
+					}
+
+					for(size_t s = 0; s < data.species_absorption_cross_section[layer].size(); ++s)
+					{
+						data.species_absorption_cross_section[layer][s] += src.species_absorption_cross_section[layer][s] * w;
+						double s_scat = src.species_scattering_cross_section[layer][s];
+						data.species_scattering_cross_section[layer][s] += s_scat * w;
+
+						if(data.is_scattering_species[s])
+						{
+							for(size_t l = 0; l < data.species_scattering_phase_function[layer][s].size(); ++l)
+							{
+								data.species_scattering_phase_function[layer][s][l][1] += src.species_scattering_phase_function[layer][s][l][1] * s_scat * w;
+							}
+						}
+					}
+				}
+			}
+
+			// 正規化
+			for(int layer = 0; layer < n_layer; ++layer)
+			{
+				if (data.scattering_coefficient[layer] > 0.0)
+				{
+					data.asymmetry_parameter[layer] /= data.scattering_coefficient[layer];
+					physics::normalizeScatteringPhaseFunction(data.scattering_phase_function[layer]);
+				}
+
+				for(size_t s = 0; s < data.is_scattering_species.size(); ++s)
+				{
+					if(data.is_scattering_species[s] && data.species_scattering_cross_section[layer][s] > 0.0)
+					{
+						physics::normalizeScatteringPhaseFunction(data.species_scattering_phase_function[layer][s]);
+					}
+				}
+
+				double total_ext = data.absorption_coefficient[layer] + data.scattering_coefficient[layer];
+				data.single_scattering_albedo[layer] = (total_ext > 0) ? (data.scattering_coefficient[layer] / total_ext) : 0.0;
+				data.optical_thickness[layer] = total_ext * (atmosphere_model_.altitude_top[layer] - atmosphere_model_.altitude_bottom[layer]);
+			}
+			
+			convolved_data.push_back(std::move(data));
+			new_grid.push_back(spectral_.spectral_grid[center_idx]);
+		}
+		result_.spectral_data = convolved_data;
+		result_.spectral_grid = new_grid;
+		result_.spectral_dimension = spectral_.spectral_dimension;
+		spectral_.spectral_grid = new_grid;
 	}
 
 	result_adjoint_.altitude = atmosphere_model_.altitude;

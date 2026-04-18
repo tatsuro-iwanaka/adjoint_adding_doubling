@@ -230,14 +230,6 @@ public:
 
 struct Species
 {
-	// ヤコビアン計算に必要な最低限を残す
-	// 微小変化させるのはこのSpecies
-	// これを微小変化させた後に放射計算の準備
-	// これを使ってMie計算を行う
-	// Mie計算に必要なのは複素屈折率，粒径分布
-	// 数密度（混合比）の鉛直分布
-	// 複素屈折率の鉛直分布
-	// 吸収断面積，散乱断面積
 	public:
 		std::string name;
 		SpeciesState species_state;
@@ -675,21 +667,67 @@ struct SpeciesSensitivity
 	double gd_a, gd_b;
 	double r_c, alpha, gamma;
 	double pl_delta, pl_r1, pl_r2;
+
+	void zero()
+	{
+		number_density = 0.0;
+		mixing_ratio = 0.0;
+		log_mixing_ratio = 0.0;
+		is_aerosol = false;
+
+		size_distribution_function = ParticleSizeDistribution::Delta;
+
+		delta_r = 0.0;
+		lnd_r_g = 0.0;
+		lnd_r_g = 0.0;
+		lnd_sigma_g = 0.0;
+		rect_r_mean = 0.0;
+		rect_width = 0.0;
+		gd_a = 0.0;
+		gd_b = 0.0;
+		r_c = 0.0;
+		alpha = 0.0;
+		gamma = 0.0;
+		pl_delta = 0.0;
+		pl_r1 = 0.0;
+		pl_r2 = 0.0;
+	}
 };
 
 struct LayerSensitivity
 {
 	aad::core::OpticalSensitivity optical;
+
+	double temperature;
 	
 	std::vector<SpeciesSensitivity> species;
+
+	void zero()
+	{
+		optical.zero();
+		temperature = 0.0;
+		
+		for (auto& s : species) s.zero();
+	}
 };
 
 struct RadiativeTransferAjointResult
 {
-	std::vector<double> altitude; // altitude
+	std::vector<double> altitude;
 	std::vector<LayerSensitivity> layers;
 
-	// 地面の感度は後で実装．今はとりあえず大気だけ
+	double surface_temperature;
+	double surface_albedo;
+	double surface_emissivity;
+
+	void zero()
+	{
+		for (auto& l : layers) l.zero();
+
+		surface_temperature = 0.0;
+		surface_albedo = 0.0;
+		surface_emissivity = 0.0;
+	}
 };
 
 }

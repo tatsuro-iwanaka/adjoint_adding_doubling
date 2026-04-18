@@ -5,13 +5,15 @@
 #include "Forward"
 #include "Adjoint"
 
+#include <utility>
+
 #include "../io/Logger"
 
 namespace aad::core
 {
 
 RadiativeLayer computeAtmosphere(const std::vector<RadiativeLayer>&, const Geometry&);
-inline std::vector<RadiativeLayer> computeAtmosphere_adjoint(const std::vector<RadiativeLayer>&, const Geometry&,  const RadiativeLayer&);
+inline std::pair<RadiativeLayer, std::vector<RadiativeLayer>> computeAtmosphere_adjoint(const std::vector<RadiativeLayer>&, const Geometry&,  const RadiativeLayer&);
 
 inline RadiativeLayer computeAtmosphere(const std::vector<RadiativeLayer>& initial_layers, const Geometry& geo)
 {
@@ -50,12 +52,16 @@ inline RadiativeLayer computeAtmosphere(const std::vector<RadiativeLayer>& initi
 		{
 			result_layer = addLayer(result_layer, layer, geo);
 		}
+
+		// std::cout << i << ", " << result_layer.source_up(0) << std::endl;
 	}
+
+	// std::cout << "result" << ", " << result_layer.reflectance_m_top_cos[0](0, 0) << ", " << result_layer.reflectance_m_bottom_cos[0](0, 0) << ", " << result_layer.transmittance_m_top_cos[0](0, 0) << ", " << result_layer.transmittance_m_bottom_cos[0](0, 0) << ", " << result_layer.source_up(0) << std::endl;
 
 	return result_layer;
 }
 
-inline std::vector<RadiativeLayer> computeAtmosphere_adjoint(const std::vector<RadiativeLayer>& initial_layers, const Geometry& geo,  const RadiativeLayer& adj_result)
+inline std::pair<RadiativeLayer, std::vector<RadiativeLayer>> computeAtmosphere_adjoint(const std::vector<RadiativeLayer>& initial_layers, const Geometry& geo,  const RadiativeLayer& adj_result)
 {
 	int n_layer = initial_layers.size();
 	
@@ -147,9 +153,11 @@ inline std::vector<RadiativeLayer> computeAtmosphere_adjoint(const std::vector<R
 		}
 		
 		adj_initial_layers[i] = adj_layer_init;
+
+		// std::cout << i << ", " << adj_initial_layers[i].source_up(0) << std::endl;
 	}
 
-	return adj_initial_layers;
+	return std::pair(current_cumulative, adj_initial_layers);
 }
 
 }

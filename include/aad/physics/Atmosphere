@@ -16,68 +16,6 @@ double interpolateVerticalProfile(double, const std::vector<std::vector<double>>
 double computePlanckFunction(double, double, SpectralCoordinateDimension);
 double computeThermalEmission(double, double, double);
 
-/*
-inline double ModelBuilder::interpolateVerticalProfile(double x, const std::vector<std::vector<double>>& table, VerticalProfileInterpolation type)
-{
-	if (table.empty()) return 0.0;
-
-	// 2. 範囲外チェック (外挿はせず、端の値を返すか0を返すか仕様による)
-	// ここでは範囲外なら 0.0 を返す（元のコード準拠）
-	if (x < table.front()[0] || x > table.back()[0])
-	{
-		return 0.0; 
-	}
-
-	// 3. 二分探索 (std::lower_bound) で高速に区間を見つける
-	// イテレータ it は、x 以上の最初の要素を指す
-	auto it = std::lower_bound(table.begin(), table.end(), x, [](const std::vector<double>& row, double val){return row[0] < val;});
-
-	// x がテーブルの最初の要素と一致する場合のケア
-	if (it == table.begin())
-	{
-		return table.front()[1];
-	}
-
-	// it は区間の「右端」なので、一つ戻って「左端」を取得
-	size_t j = std::distance(table.begin(), it) - 1;
-
-	// 4. 補間係数 r の計算
-	double x0 = table[j][0];
-	double x1 = table[j + 1][0];
-	double y0 = table[j][1];
-	double y1 = table[j + 1][1];
-
-	// 分母が0になるケース（同じ高度のデータが連続している等）をケア
-	if (std::abs(x1 - x0) < 1.0e-9) return y0;
-
-	double r = (x - x0) / (x1 - x0);
-
-	// 5. 値の計算
-	if (type == VerticalProfileInterpolation::Linear)
-	{
-		// 線形補間: y = (1-r)y0 + r*y1
-		return ((1.0 - r) * y0 + r * y1);
-	}
-	else
-	{ 
-		// 指数補間: y = exp( (1-r)ln(y0) + r*ln(y1) )
-		// 安全対策: 値が正でなければ線形補間にフォールバック、または微小値を代入
-		if (y0 <= 0.0 || y1 <= 0.0) 
-		{
-			// 0以下の値の対数は取れないため、線形で返すか、0とみなす
-			return ((1.0 - r) * y0 + r * y1);
-		}
-
-		double log0 = std::log(y0);
-		double log1 = std::log(y1);
-		
-		// 計算後にまとめて scale_value を掛ける方が log の計算回数が減る
-		// exp(ln(y)) * scale = y * scale
-		return std::exp((1.0 - r) * log0 + r * log1);
-	}
-}
-*/
-
 inline double interpolateVerticalProfile(double x, const std::vector<std::vector<double>>& table, VerticalProfileInterpolation type)
 {
 	if (table.empty()) return 0.0;
@@ -146,7 +84,7 @@ inline double computePlanckFunction(double spectral, double temperature, Spectra
 	{
 		B = 2.0 * SPEED_OF_LIGHT * SPEED_OF_LIGHT * PLANCK_CONSTANT;
 		B /= std::pow(spectral, 5);
-		B /= (std::exp(PLANCK_CONSTANT *SPEED_OF_LIGHT / (spectral * BOLTZMANN_CONSTANT * temperature)) - 1.0);
+		B /= (std::exp(PLANCK_CONSTANT * SPEED_OF_LIGHT / (spectral * BOLTZMANN_CONSTANT * temperature)) - 1.0);
 		
 	}
 	else if(dimension == SpectralCoordinateDimension::Wavenumber)
@@ -162,6 +100,24 @@ inline double computeThermalEmission(double plank_function, double tau, double m
 {
 	// 1 – exp(‑τ/μ)  ---  use expm1 for numerical safety when τ is very small.
 	return plank_function * (-std::expm1(-tau / mu));
+}
+
+inline double computePlanckFunctionDerivative(double spectral, double temperature, SpectralCoordinateDimension dimension)
+{
+	double X = 0.0;
+
+	if(dimension == SpectralCoordinateDimension::Wavelength)
+	{
+		X = PLANCK_CONSTANT * SPEED_OF_LIGHT / (spectral * BOLTZMANN_CONSTANT * temperature);		
+	}
+	else if(dimension == SpectralCoordinateDimension::Wavenumber)
+	{
+		X = PLANCK_CONSTANT * SPEED_OF_LIGHT * spectral / (BOLTZMANN_CONSTANT * temperature);
+	}
+
+	double dBdT = computePlanckFunction(spectral, temperature, dimension) / temperature * X / (-std::expm1(-X));
+
+	return dBdT;
 }
 
 inline void Configuration::validateConfiguration(void)
@@ -481,15 +437,20 @@ inline void Configuration::validateConfiguration(void)
 	}
 	else if(surface.type.value() == physics::SurfaceType::Lambert)
 	{
-		if(!surface.albedo.has_value())
+		if(!surface.albedo.has_value() && !surface.emissivity.has_value())
 		{
-			io::global().fatal("Configuration::validateConfiguration") << "surface_albedo was not specified.";
-			throw std::runtime_error("[Configuration::validateConfiguration] surface_albedo was not specified.");
+			io::global().fatal("Configuration::validateConfiguration") << "surface_albedo nor surface_emissivity were not specified.";
+			throw std::runtime_error("[Configuration::validateConfiguration] surface_albedo nor surface_emissivity were not specified.");
+		}
+		else if(!surface.albedo.has_value())
+		{
+			surface.albedo = 1.0 - surface.emissivity.value();
+			io::global().warn("Configuration::validateConfiguration") << "surface_albedo was not specified. Automatically set to " << 1.0 - surface.emissivity.value() << " (1 - albedo).";
 		}
 		if(!surface.emissivity.has_value())
 		{
 			surface.emissivity = 1.0 - surface.albedo.value();
-			io::global().warn("Configuration::validateConfiguration") << "surface_emissivity was not specified. Automatically set to " << surface.emissivity.value() << "1-albedo.";
+			io::global().warn("Configuration::validateConfiguration") << "surface_emissivity was not specified. Automatically set to " << 1.0 - surface.albedo.value() << " (1 - emissivity).";
 		}
 		if(!surface.temperature.has_value())
 		{

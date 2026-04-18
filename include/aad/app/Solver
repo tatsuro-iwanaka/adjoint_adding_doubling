@@ -15,6 +15,8 @@
 #include "../utils/Math"
 #include "../utils/String"
 
+#include <utility>
+
 namespace aad
 {
 
@@ -43,7 +45,7 @@ class RadiativeTransferSolver
 		void delta_approximation(const physics::DeltaApproximation&); // setter
 
 		physics::MonochromeData computeMonochrome(const physics::AtmosphereModel&, double, physics::SpectralCoordinateDimension, double, int);
-		physics::RadiativeTransferAjointResult computeMonochrome_adjoint(const physics::AtmosphereModel&, double, physics::SpectralCoordinateDimension, const core::RadiativeLayer&, double, int);
+		std::pair<physics::MonochromeData, physics::RadiativeTransferAjointResult> computeMonochrome_adjoint(const physics::AtmosphereModel&, double, physics::SpectralCoordinateDimension, const core::RadiativeLayer&, double, int);
 };
 
 inline RadiativeTransferSolver::RadiativeTransferSolver()
@@ -161,7 +163,7 @@ inline physics::MonochromeData RadiativeTransferSolver::computeMonochrome(const 
 	return result;
 }
 
-inline physics::RadiativeTransferAjointResult RadiativeTransferSolver::computeMonochrome_adjoint(const physics::AtmosphereModel& atmosphere_model, double spectral, physics::SpectralCoordinateDimension dimension, const core::RadiativeLayer& adj_source, double initial_optical_thickness, int n_scattering_angle)
+inline std::pair<physics::MonochromeData, physics::RadiativeTransferAjointResult> RadiativeTransferSolver::computeMonochrome_adjoint(const physics::AtmosphereModel& atmosphere_model, double spectral, physics::SpectralCoordinateDimension dimension, const core::RadiativeLayer& adj_source, double initial_optical_thickness, int n_scattering_angle)
 {
 	initial_optical_thickness_ = initial_optical_thickness;
 	n_scattering_angle_ = n_scattering_angle;
@@ -223,18 +225,69 @@ inline physics::RadiativeTransferAjointResult RadiativeTransferSolver::computeMo
 
 	// ajoint
 	io::global().info("RadiativeTransferSolver::computeMonochrome_adjoint") << "Computing adjoint calculation for " << spectral << (dimension == physics::SpectralCoordinateDimension::Wavenumber ? " m-1" : " m") << ".";
-	auto adj_layers = core::computeAtmosphere_adjoint(atmosphere_layer_rad, geometry_, adj_source);
+	auto result_fwd_adj = core::computeAtmosphere_adjoint(atmosphere_layer_rad, geometry_, adj_source);
+	auto adj_layers = result_fwd_adj.second;
+	auto fwd_layers = result_fwd_adj.first;
 	io::global().info("RadiativeTransferSolver::computeMonochrome_adjoint") << "Finished adjoint calculation for " << spectral << (dimension == physics::SpectralCoordinateDimension::Wavenumber ? " m-1" : " m") << ".";
+
+	physics::MonochromeData result;
+	result.absorption_coefficient.resize(n_layer);
+	result.scattering_coefficient.resize(n_layer);
+	result.optical_thickness.resize(n_layer);
+	result.single_scattering_albedo.resize(n_layer);
+	result.asymmetry_parameter.resize(n_layer);
+
+	result.scattering_phase_function.resize(n_layer);
+	result.species_absorption_cross_section.resize(n_layer);
+	result.species_scattering_cross_section.resize(n_layer);
+	result.species_scattering_phase_function.resize(n_layer);
+	result.is_scattering_species = atmosphere_layer_opt[0].is_scattering_species;
 
 	physics::RadiativeTransferAjointResult sensitivity;
 	sensitivity.layers.resize(n_layer);
 
+	if (atmosphere_model.surface_type != physics::SurfaceType::NoSurface)
+	{
+		const auto& adj_surf = adj_layers[0];
+		double s = geometry_.WMU.sum();
+		double adj_source_sum = 0.0;
+		for (int e = 0; e < geometry_.Ntheta; ++e)
+		{
+			adj_source_sum += adj_surf.source_up(e);
+		}
+
+		// 地表温度感度 (dJ/dT_surf)
+		// source_up(e) = emissivity * B(T)
+		double dBdT_surf = computePlanckFunctionDerivative(spectral, atmosphere_model.surface_temperature, dimension);
+		sensitivity.surface_temperature = adj_source_sum * atmosphere_model.surface_emissivity * dBdT_surf;
+
+		// 放射率感度 (dJ/demissivity)
+		// source_up(e) = emissivity * B(T) より d(source)/d(eps) = B(T)
+		sensitivity.surface_emissivity = adj_source_sum * atmosphere_layer_opt[0].planck_function;
+
+		// アルベド感度 (dJ/dalbedo)
+		// reflectance_m_top_cos[0](e, i) = albedo / s より dR/dalbedo = 1 / s
+		double adj_reflectance_sum = adj_surf.reflectance_m_top_cos[0].sum();
+		sensitivity.surface_albedo = adj_reflectance_sum / s;
+	}
+
 	for(int i = 0; i < n_layer; ++i)
 	{
+		result.absorption_coefficient[i] = atmosphere_layer_opt[i].absorption_coefficient;
+		result.scattering_coefficient[i] = atmosphere_layer_opt[i].scattering_coefficient;
+		result.optical_thickness[i] = atmosphere_layer_opt[i].optical_thickness;
+		result.single_scattering_albedo[i] = atmosphere_layer_opt[i].single_scattering_albedo;
+		result.asymmetry_parameter[i] = atmosphere_layer_opt[i].asymmetry_parameter;
+
+		result.scattering_phase_function[i] = atmosphere_layer_opt[i].scattering_phase_function;
+		result.species_absorption_cross_section[i] = atmosphere_layer_opt[i].species_absorption_cross_section;
+		result.species_scattering_cross_section[i] = atmosphere_layer_opt[i].species_scattering_cross_section;
+		result.species_scattering_phase_function[i] = atmosphere_layer_opt[i].species_scattering_phase_function;
+
 		int idx = atmosphere_model.surface_type == physics::SurfaceType::NoSurface ? i : i + 1;
 		
 		io::global().info("RadiativeTransferSolver::computeMonochrome_adjoint") << "Computing initialization sensitivities for layer  " << i << ".";
-		auto core_sens = core::computeInitializationSensitivities(adj_layers[idx], atmosphere_layer_rad[idx], atmosphere_layer_opt[i].single_scattering_albedo,geometry_, n_scattering_angle);
+		auto core_sens = core::computeInitializationSensitivities(adj_layers[idx], atmosphere_layer_rad[idx], atmosphere_layer_opt[i].single_scattering_albedo, atmosphere_layer_opt[i].planck_function, geometry_, n_scattering_angle);
 		io::global().info("RadiativeTransferSolver::computeMonochrome_adjoint") << "Finished computing initialization sensitivities for layer  " << i << ".";
 
 		sensitivity.layers[i].species.resize(atmosphere_model.species.size());
@@ -260,8 +313,14 @@ inline physics::RadiativeTransferAjointResult RadiativeTransferSolver::computeMo
 		core_sens.optical_thickness *= scale_factor;
 
 		sensitivity.layers[i].optical = core_sens;
+		// std::cout << core_sens.single_scattering_albedo << std::endl;
 
 		// io::global().info("RadiativeTransferSolver::computeMonochrome_adjoint") << "core_sens.scattering_phase_function.size() = " << core_sens.scattering_phase_function.size() << ", n_scattering_angle = " << n_scattering_angle;
+
+		// --- 温度感度の計算 (Layer) ---
+		double dBdT = computePlanckFunctionDerivative(spectral, atmosphere_model.temperature[i], dimension);
+		double dJdB = core_sens.plank_function;
+		sensitivity.layers[i].temperature = dJdB * dBdT;
 
 		for(size_t s = 0; s < atmosphere_model.species.size(); ++s)
 		{
@@ -276,6 +335,8 @@ inline physics::RadiativeTransferAjointResult RadiativeTransferSolver::computeMo
 
 			sensitivity.layers[i].species[s].number_density = term_tau + term_omega;
 
+			// std::cout << term_tau << ", " << term_omega << std::endl;
+
 			if(atmosphere_layer_opt[i].is_scattering_species[s] == true && omega_total > 0.0)
 			{
 				double term_P = 0.0;
@@ -289,7 +350,7 @@ inline physics::RadiativeTransferAjointResult RadiativeTransferSolver::computeMo
 			}
 
 			sensitivity.layers[i].species[s].mixing_ratio = sensitivity.layers[i].species[s].number_density * atmosphere_model.number_density[i];
-			// sensitivity.layers[i].species[s].log_mixing_ratio = sensitivity.layers[i].species[s].mixing_ratio * atmosphere_model.species[s].vertical_mixing_ratio_profile[i];
+			sensitivity.layers[i].species[s].log_mixing_ratio = sensitivity.layers[i].species[s].mixing_ratio * atmosphere_model.species[s].vertical_mixing_ratio_profile[i];
 
 			if(species.species_state == physics::SpeciesState::Aerosol)
 			{
@@ -358,9 +419,13 @@ inline physics::RadiativeTransferAjointResult RadiativeTransferSolver::computeMo
 		}
 	}
 
+	result.reflectance_m_top_cos = fwd_layers.reflectance_m_top_cos;
+	result.reflectance_m_top_sin = fwd_layers.reflectance_m_top_sin;
+	result.source_up = fwd_layers.source_up;
+
 	io::global().info("RadiativeTransferSolver::computeMonochrome_adjoint") << "Finished propagation for " << spectral << (dimension == physics::SpectralCoordinateDimension::Wavenumber ? " m-1" : " m") << ".";
 
-	return sensitivity;
+	return std::pair(result, sensitivity);
 }
 
 inline void RadiativeTransferSolver::computeDeltaApproximation_(physics::OpticalLayer& layer)
@@ -812,6 +877,7 @@ inline std::vector<physics::OpticalLayer> RadiativeTransferSolver::setAtmospheri
 		if(layers[i].enable_atmospheric_emission)
 		{
 			layers[i].planck_function = computePlanckFunction(spectral, temperature, dimension);
+			// std::cout << temperature << ", " << spectral << ", " << layers[i].planck_function << std::endl;
 		}
 
 		for(int j = 0; j < atmosphere_model.species.size(); ++j)
@@ -944,6 +1010,7 @@ inline physics::OpticalLayer RadiativeTransferSolver::setSurfaceLayerCondition_(
 	if(layer.enable_atmospheric_emission)
 	{
 		layer.planck_function = computePlanckFunction(spectral, atmosphere_model.surface_temperature, dimension);
+		// std::cout << layer.planck_function << std::endl;
 	}
 
 	return layer;

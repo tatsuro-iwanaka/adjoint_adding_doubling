@@ -555,14 +555,17 @@ inline void computeInitializationSensitivities(const RadiativeLayer& adj_layer, 
 	}
 }
 
-inline OpticalSensitivity computeInitializationSensitivities(const RadiativeLayer& adj_layer, const RadiativeLayer& fwd_matrix_layer, double single_scattering_albedo, const Geometry& geo, int n_theta)
+inline OpticalSensitivity computeInitializationSensitivities(const RadiativeLayer& adj_layer, const RadiativeLayer& fwd_matrix_layer, double single_scattering_albedo, double plank_function, const Geometry& geo, int n_theta)
 {
 	OpticalSensitivity result;
 	result.optical_thickness = 0.0;
 	result.single_scattering_albedo = 0.0;
+	result.plank_function = 0.0;
 
 	double tau = fwd_matrix_layer.optical_thickness;
 	double omega = single_scattering_albedo;
+
+	// std::cout << single_scattering_albedo << std::endl;
 
 	// if (tau <= 1e-15 || omega <= 1e-15)
 	// {
@@ -584,7 +587,32 @@ inline OpticalSensitivity computeInitializationSensitivities(const RadiativeLaye
 	}
 
 	result.optical_thickness += sum_inner_product * inv_tau;
-	result.single_scattering_albedo += sum_inner_product * inv_omega;
+
+	if(omega < 1.0E-16)
+	{
+		result.single_scattering_albedo += 0.0; // とりあえず．散乱が生えてくるときは後で実装
+	}
+	else
+	{
+		result.single_scattering_albedo += sum_inner_product * inv_omega;
+	}
+
+	for(int i = 0; i < geo.Ntheta; ++i)
+	{
+		double mu = geo.mu(i);
+		double trans = std::exp(-tau / mu);
+		double emit_factor = -std::expm1(-tau / mu); // 1-exp(-tau/mu)
+		double adj_sum = adj_layer.source_up(i) + adj_layer.source_down(i);
+
+		// dS/dtau = (1-omega) * B * exp(-tau/mu) / mu
+        result.optical_thickness += adj_sum * (1.0 - omega) * plank_function * trans / mu;
+
+        // dS/domega = -B * (1 - exp(-tau/mu))
+        result.single_scattering_albedo -= adj_sum * plank_function * emit_factor;
+
+        // dS/dB = (1-omega) * (1 - exp(-tau/mu))
+        result.plank_function += adj_sum * (1.0 - omega) * emit_factor;
+	}
 
 	std::vector<double> theta_grid(n_theta);
 	std::vector<double> grad_P(n_theta, 0.0);

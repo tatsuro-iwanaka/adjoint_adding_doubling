@@ -424,54 +424,54 @@ inline std::vector<physics::Species> ModelBuilder::buildSpecies_(const physics::
 
 				if(s_input.size_distribution.value() == physics::ParticleSizeDistribution::Delta)
 				{
-					// std::cout << "delta" << std::endl;
 					s.particle_size_distribution = {{s_input.delta_r.value() * physics::scaleUnit(s_input.unit_input_radius.value(), "m"), 1.0}};
 					s.weight_particle_size_distribution = {{s_input.delta_r.value() * physics::scaleUnit(s_input.unit_input_radius.value(), "m"), 1.0}};
+
 					s.delta_r = s_input.delta_r.value() * physics::scaleUnit(s_input.unit_input_radius.value(), "m");
 				}
 				else if(s_input.size_distribution.value() == physics::ParticleSizeDistribution::Rectangular)
 				{
-					// std::cout << "rectangle" << std::endl;
 					auto node_weight = physics::generateRectangularSizeDistribution(s_input.count_radius.value(), s_input.rect_r_mean.value() * physics::scaleUnit(s_input.unit_input_radius.value(), "m"), s_input.rect_width.value() * physics::scaleUnit(s_input.unit_input_radius.value(), "m"));
 					s.particle_size_distribution = node_weight[0]; // 本当は不要
 					s.weight_particle_size_distribution = node_weight[1];
+
 					s.rect_r_mean = s_input.rect_r_mean.value() * physics::scaleUnit(s_input.unit_input_radius.value(), "m");
 					s.rect_width = s_input.rect_width.value() * physics::scaleUnit(s_input.unit_input_radius.value(), "m");
 				}
 				else if(s_input.size_distribution.value() == physics::ParticleSizeDistribution::Gamma)
 				{
-					// std::cout << "gamma" << std::endl;
 					auto node_weight = physics::generateGammaSizeDistribution(s_input.count_radius.value(), s_input.gd_a.value() * physics::scaleUnit(s_input.unit_input_radius.value(), "m"), s_input.gd_b.value());
 					s.particle_size_distribution = node_weight[0]; // 本当は不要
 					s.weight_particle_size_distribution = node_weight[1];
+
 					s.gd_a = s_input.gd_a.value() * physics::scaleUnit(s_input.unit_input_radius.value(), "m");
 					s.gd_b = s_input.gd_b.value();
 				}
 				else if(s_input.size_distribution.value() == physics::ParticleSizeDistribution::ModifiedGamma)
 				{
-					// std::cout << "modified gamma" << std::endl;
 					auto node_weight = physics::generateModifiedGammaSizeDistribution(s_input.count_radius.value(), s_input.mgd_r_c.value() * physics::scaleUnit(s_input.unit_input_radius.value(), "m"), s_input.mgd_alpha.value(), s_input.mgd_gamma.value());
 					s.particle_size_distribution = node_weight[0]; // 本当は不要
 					s.weight_particle_size_distribution = node_weight[1];
+
 					s.mgd_r_c = s_input.mgd_r_c.value() * physics::scaleUnit(s_input.unit_input_radius.value(), "m");
 					s.mgd_alpha = s_input.mgd_alpha.value();
 					s.mgd_gamma = s_input.mgd_gamma.value();
 				}
 				else if(s_input.size_distribution.value() == physics::ParticleSizeDistribution::LogNormal)
 				{
-					// std::cout << "log normal" << std::endl;
 					auto node_weight = physics::generateLogNormalSizeDistribution(s_input.count_radius.value(), s_input.lnd_r_g.value() * physics::scaleUnit(s_input.unit_input_radius.value(), "m"), s_input.lnd_sigma_g.value());
 					s.particle_size_distribution = node_weight[0]; // 本当は不要
 					s.weight_particle_size_distribution = node_weight[1];
+
 					s.lnd_r_g = s_input.lnd_r_g.value() * physics::scaleUnit(s_input.unit_input_radius.value(), "m");
 					s.lnd_sigma_g = s_input.lnd_sigma_g.value();
 				}
 				else if(s_input.size_distribution.value() == physics::ParticleSizeDistribution::PowerLaw)
 				{
-					// std::cout << "power law" << std::endl;
 					auto node_weight = physics::generatePowerLawSizeDistribution(s_input.count_radius.value(), s_input.pl_delta.value(), s_input.pl_r1.value() * physics::scaleUnit(s_input.unit_input_radius.value(), "m"), s_input.pl_r2.value() * physics::scaleUnit(s_input.unit_input_radius.value(), "m"));
 					s.particle_size_distribution = node_weight[0]; // 本当は不要
 					s.weight_particle_size_distribution = node_weight[1];
+
 					s.pl_delta = s_input.pl_delta.value();
 					s.pl_r1 = s_input.pl_r1.value() * physics::scaleUnit(s_input.unit_input_radius.value(), "m");
 					s.pl_r2 = s_input.pl_r2.value() * physics::scaleUnit(s_input.unit_input_radius.value(), "m");
@@ -1152,47 +1152,136 @@ inline physics::SpectralInformation ModelBuilder::buildSpectral(const physics::C
 				}
 			}
 		}
-		else if(configuration.instrument.convolution_kernel_type.value() == physics::InstrumentFunctionType::Rectangle)
+		else
 		{
-			// パディングが必要
+			// 共通パラメータ
 			double scale = physics::getUnitInfo(configuration.spectral_coordinate.unit.value()).to_si;
 			double min = configuration.spectral_coordinate.min.value() * scale;
 			double max = configuration.spectral_coordinate.max.value() * scale;
-			double width = configuration.instrument.kernel_width.value() * scale;
+			int count = configuration.spectral_coordinate.n_spectral.value(); // 出力希望 101点
 
-			int osc = configuration.instrument.over_sampling_count.value() % 2 == 0 ? configuration.instrument.over_sampling_count.value() + 1 : configuration.instrument.over_sampling_count.value();
-			// ここでカーネルとspectralグリッドを生成
-			double d_spec = width / static_cast<double>(osc - 1);
-			int n_spec = static_cast<int>((max - min) / d_spec);
-			spectral.spectral_grid.resize(n_spec + (osc - 1));
-			
+			// 1. 出力の基本解像度
+			double d_out = (max - min) / static_cast<double>(count - 1);
 
-			for(int i = 0; i < n_spec + (osc - 1); ++i)
+			// 2. カーネルの物理プロパティ取得
+			double kernel_half_width = 0.0;
+			double sigma = 0.0;
+			double cut_off_sigma = 0.0;
+
+			if (configuration.instrument.convolution_kernel_type.value() == physics::InstrumentFunctionType::Rectangle)
 			{
-				spectral.spectral_grid[i] = min + static_cast<double>(i - osc / 2) * d_spec;
+				kernel_half_width = (configuration.instrument.kernel_width.value() * scale) / 2.0;
+			} 
+			else
+			{
+				sigma = configuration.instrument.kernel_sigma.value() * scale;
+				cut_off_sigma = configuration.instrument.kernel_cut_off_sigma.value();
+				kernel_half_width = cut_off_sigma * sigma;
 			}
 
-			spectral.convolution_kernel = physics::generateRectangularKernel(osc);
-		}
-		else if(configuration.instrument.convolution_kernel_type.value() == physics::InstrumentFunctionType::Gauss)
-		{
-			double scale = physics::getUnitInfo(configuration.spectral_coordinate.unit.value()).to_si;
-			double min = configuration.spectral_coordinate.min.value() * scale;
-			double max = configuration.spectral_coordinate.max.value() * scale;
-			double sigma = configuration.instrument.kernel_sigma.value() * scale;
-			double cut_off_sigma = configuration.instrument.kernel_cut_off_sigma.value();
-			int osc = configuration.instrument.over_sampling_count.value() % 2 == 0 ? configuration.instrument.over_sampling_count.value() + 1 : configuration.instrument.over_sampling_count.value();
-			double d_spec = 2.0 * cut_off_sigma * sigma / static_cast<double>(osc - 1);
-			int n_spec = static_cast<int>((max - min) / d_spec);
-			spectral.spectral_grid.resize(n_spec + (osc - 1));
-			
-			for(int i = 0; i < n_spec + (osc - 1); ++i)
+			// 3. カーネルが要求する「理想の解像度」
+			int n_sample_yaml = configuration.instrument.over_sampling_count.value();
+			double d_k_ideal = (kernel_half_width * 2.0) / static_cast<double>(std::max(2, n_sample_yaml - 1));
+
+			// 4. 倍率（Multiplier）の決定
+			// 出力グリッドの 1 区間を何分割すれば、カーネルの解像度要求を満たせるか
+			int multiplier = 1;
+			if (d_out > d_k_ideal)
 			{
-				spectral.spectral_grid[i] = min + static_cast<double>(i - osc / 2) * d_spec;
+				multiplier = static_cast<int>(std::ceil(d_out / d_k_ideal));
 			}
 
-			spectral.convolution_kernel = physics::generateGaussianKernel(sigma, osc, cut_off_sigma);
+			// 内部計算用の解像度（d_out の整数分の一であることを保証）
+			double d_int = d_out / static_cast<double>(multiplier);
+
+			// 5. パディング数の決定（カーネル半径をカバーする最小の整数点数）
+			int n_pad = static_cast<int>(std::ceil(kernel_half_width / d_int));
+			int osc = 2 * n_pad + 1; // 内部解像度における実効サンプル数
+
+			// 6. グリッド構築
+			int n_internal_core = (count - 1) * multiplier + 1;
+			int total_points = n_internal_core + 2 * n_pad;
+			spectral.spectral_grid.resize(total_points);
+
+			for (int i = 0; i < total_points; ++i) {
+				// i = n_pad で正確に min
+				// i = n_pad + multiplier で出力グリッドの次の点
+				// i = n_pad + (count-1) * multiplier で正確に max
+				spectral.spectral_grid[i] = min + static_cast<double>(i - n_pad) * d_int;
+			}
+
+			// 7. カーネル生成
+			if (configuration.instrument.convolution_kernel_type.value() == physics::InstrumentFunctionType::Rectangle) {
+				spectral.convolution_kernel = physics::generateRectangularKernel(osc);
+			} else {
+				spectral.convolution_kernel = physics::generateGaussianKernel(sigma, osc, cut_off_sigma);
+			}
 		}
+
+
+
+
+
+
+		// else if(configuration.instrument.convolution_kernel_type.value() == physics::InstrumentFunctionType::Rectangle)
+		// {
+		// 	// 共通の準備
+		// 	double scale = physics::getUnitInfo(configuration.spectral_coordinate.unit.value()).to_si;
+		// 	double min = configuration.spectral_coordinate.min.value() * scale;
+		// 	double max = configuration.spectral_coordinate.max.value() * scale;
+		// 	int count = configuration.spectral_coordinate.n_spectral.value();
+
+		// 	// 1. 出力解像度を決定（なめらかさの確保）
+		// 	double d_spec = (max - min) / static_cast<double>(count - 1);
+
+		// 	double width = configuration.instrument.kernel_width.value() * scale;
+
+		// 	// カーネル半径に必要なポイント数を算出
+		// 	int n_pad = static_cast<int>(std::ceil((width / 2.0) / d_spec));
+		// 	int osc = 2 * n_pad + 1; // 解像度 d_spec に合わせたサンプル数
+			
+		// 	int total_points = count + 2 * n_pad;
+		// 	spectral.spectral_grid.resize(total_points);
+
+		// 	for(int i = 0; i < total_points; ++i)
+		// 	{
+		// 		spectral.spectral_grid[i] = min + static_cast<double>(i - n_pad) * d_spec;
+		// 	}
+
+		// 	spectral.convolution_kernel = physics::generateRectangularKernel(osc);
+		// }
+		// else if(configuration.instrument.convolution_kernel_type.value() == physics::InstrumentFunctionType::Gauss)
+		// {
+		// 	double scale = physics::getUnitInfo(configuration.spectral_coordinate.unit.value()).to_si;
+		// 	double min = configuration.spectral_coordinate.min.value() * scale;
+		// 	double max = configuration.spectral_coordinate.max.value() * scale;
+		// 	int count = configuration.spectral_coordinate.n_spectral.value(); // 出力点数 (101)
+
+		// 	// 1. 出力解像度を基準にする
+		// 	double d_spec = (max - min) / static_cast<double>(count - 1);
+
+		// 	double sigma = configuration.instrument.kernel_sigma.value() * scale;
+		// 	double cut_off_sigma = configuration.instrument.kernel_cut_off_sigma.value();
+			
+		// 	// 2. 物理的なカットオフ距離をカバーするのに必要な n_pad を算出
+		// 	// これにより内部解像度が出力解像度と完全に一致する
+		// 	int n_pad = static_cast<int>(std::ceil((cut_off_sigma * sigma) / d_spec));
+			
+		// 	// 3. カーネルのサンプル数を決定（奇数）
+		// 	int n_sample_calc = 2 * n_pad + 1;
+
+		// 	int total_points = count + 2 * n_pad;
+		// 	spectral.spectral_grid.resize(total_points);
+
+		// 	for(int i = 0; i < total_points; ++i)
+		// 	{
+		// 		// インデックス n_pad が正確に min に一致
+		// 		spectral.spectral_grid[i] = min + static_cast<double>(i - n_pad) * d_spec;
+		// 	}
+
+		// 	// 算出した n_sample_calc を使ってカーネルを生成
+		// 	spectral.convolution_kernel = physics::generateGaussianKernel(sigma, n_sample_calc, cut_off_sigma);
+		// }
 	}
 	else if(configuration.spectral_coordinate.spectral_coordinate_type.value() == physics::SpectralCoordinateType::Bandpass)
 	{

@@ -256,12 +256,12 @@ inline void exportResultNetCDF(const physics::RadiativeTransferResult& result, c
 			var_emission.putAtt("units", "W/m2/sr/m");
 		}
 
-		std::vector<double> source_up;
+		std::vector<double> source_up(Nspectral * Ntheta);
 		for(int l = 0; l < Nspectral; l ++)
 		{
 			for(int e = 0; e < Ntheta; e ++)
 			{
-				source_up.push_back(result.spectral_data[l].source_up(e));
+				source_up[l * Ntheta + e] = result.spectral_data[l].source_up(e);
 			}
 		}
 
